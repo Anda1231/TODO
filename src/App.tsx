@@ -2,13 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import type { AppSettings, TodoSnapshot } from "./types/todo";
 
-const shortcutOptions = [
-  { value: "CommandOrControl+Alt+T", label: "Ctrl + Alt + T" },
-  { value: "CommandOrControl+Alt+N", label: "Ctrl + Alt + N" },
-  { value: "CommandOrControl+Shift+Space", label: "Ctrl + Shift + Space" },
-  { value: "CommandOrControl+Alt+D", label: "Ctrl + Alt + D" }
-];
-
 const emptySnapshot: TodoSnapshot = {
   today: "",
   activeTodos: [],
@@ -30,6 +23,36 @@ const formatShortcut = (shortcut?: string): string =>
     .replace("CommandOrControl", "Ctrl")
     .replace(/\+/g, " + ");
 
+type IconName = "calendar" | "quit" | "settings";
+
+const Icon = ({ name }: { name: IconName }): React.ReactElement => {
+  const paths: Record<IconName, React.ReactNode> = {
+    calendar: (
+      <>
+        <rect x="5" y="6" width="14" height="13" rx="2" />
+        <path d="M8 4v4M16 4v4M5 10h14" />
+      </>
+    ),
+    quit: (
+      <>
+        <path d="M7 7l10 10M17 7 7 17" />
+      </>
+    ),
+    settings: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 0 0-2 .2 1.7 1.7 0 0 0-.8 1.7V22h-3.6v-.1a1.7 1.7 0 0 0-1.2-1.6 1.7 1.7 0 0 0-1.8.2l-.2.1-1.8-3.1.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.4-1.1H5v-3.6h.2a1.7 1.7 0 0 0 1.4-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-3.1.2.1a1.7 1.7 0 0 0 2-.2A1.7 1.7 0 0 0 11 2.8V2h3.6v.8a1.7 1.7 0 0 0 1.2 1.6 1.7 1.7 0 0 0 1.8-.2l.2-.1 1.8 3.1-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.4 1.1h.2v3.6h-.2a1.7 1.7 0 0 0-1.2 1.1Z" />
+      </>
+    )
+  };
+
+  return (
+    <svg aria-hidden="true" className="button-icon" viewBox="0 0 24 24">
+      {paths[name]}
+    </svg>
+  );
+};
+
 export default function App(): React.ReactElement {
   const [snapshot, setSnapshot] = useState<TodoSnapshot>(emptySnapshot);
   const [newTitle, setNewTitle] = useState("");
@@ -42,9 +65,11 @@ export default function App(): React.ReactElement {
 
     const offTodos = window.todoApi.onTodosChanged(setSnapshot);
     const offDesktop = window.todoApi.onDesktopAttachResult(setDesktopAttached);
+    const offSettings = window.todoApi.onSettingsChanged(setSettings);
     return () => {
       offTodos();
       offDesktop();
+      offSettings();
     };
   }, []);
 
@@ -63,11 +88,6 @@ export default function App(): React.ReactElement {
     setNewTitle("");
   };
 
-  const changeShortcut = async (shortcut: string): Promise<void> => {
-    const next = await window.todoApi.setShortcut(shortcut);
-    setSettings(next);
-  };
-
   return (
     <main className="widget-shell">
       <section className="widget-card">
@@ -77,14 +97,20 @@ export default function App(): React.ReactElement {
             <h1>桌面代办</h1>
           </div>
           <div className="header-actions no-drag">
-            <button className="icon-button" type="button" onClick={() => window.todoApi.openCalendar()}>
-              日历
+            <button className="icon-button" type="button" title="完成日历" aria-label="完成日历" onClick={() => window.todoApi.openCalendar()}>
+              <Icon name="calendar" />
             </button>
-            <button className="icon-button" type="button" onClick={() => window.todoApi.hideWidget()}>
-              隐藏
+            <button
+              className="icon-button"
+              type="button"
+              title="设置"
+              aria-label="设置"
+              onClick={() => window.todoApi.openSettings()}
+            >
+              <Icon name="settings" />
             </button>
-            <button className="icon-button danger-button" type="button" onClick={() => window.todoApi.quitApp()}>
-              退出
+            <button className="icon-button danger-button" type="button" title="退出应用" aria-label="退出应用" onClick={() => window.todoApi.quitApp()}>
+              <Icon name="quit" />
             </button>
           </div>
         </header>
@@ -143,19 +169,9 @@ export default function App(): React.ReactElement {
         </section>
 
         <footer className="widget-footer no-drag">
-          <label className="shortcut-row">
-            <span>快捷键</span>
-            <select value={settings?.shortcut ?? shortcutOptions[0].value} onChange={(event) => changeShortcut(event.target.value)}>
-              {shortcutOptions.map((option) => (
-                <option value={option.value} key={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
           <span>
             {desktopAttached === false
-              ? "桌面固定失败，仍可从托盘显示组件"
+              ? "桌面固定失败，可切到当前页面显示"
               : `${formatShortcut(settings?.shortcut)} 呼出添加，托盘图标可显示组件`}
           </span>
         </footer>

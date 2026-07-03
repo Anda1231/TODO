@@ -13,6 +13,8 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
   todos: [],
   settings: {
     desktopAttachEnabled: true,
+    displayMode: "desktop",
+    launchAtLogin: false,
     shortcut: "CommandOrControl+Alt+T"
   }
 });
@@ -107,6 +109,19 @@ export class TodoStore {
 
   setShortcut(shortcut: string): TodoDatabase["settings"] {
     this.database.settings.shortcut = shortcut;
+    this.save();
+    return this.database.settings;
+  }
+
+  setDisplayMode(displayMode: TodoDatabase["settings"]["displayMode"]): TodoDatabase["settings"] {
+    this.database.settings.displayMode = displayMode;
+    this.database.settings.desktopAttachEnabled = displayMode === "desktop";
+    this.save();
+    return this.database.settings;
+  }
+
+  setLaunchAtLogin(launchAtLogin: boolean): TodoDatabase["settings"] {
+    this.database.settings.launchAtLogin = launchAtLogin;
     this.save();
     return this.database.settings;
   }

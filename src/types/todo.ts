@@ -33,10 +33,21 @@ export type TodoDraft = {
   title: string;
 };
 
+export type WidgetDisplayMode = "desktop" | "float";
+
 export type AppSettings = {
   widgetBounds?: WindowBounds;
   desktopAttachEnabled: boolean;
+  displayMode: WidgetDisplayMode;
+  launchAtLogin: boolean;
   shortcut: string;
+};
+
+export type ShortcutRegistrationResult = {
+  settings: AppSettings;
+  registered: boolean;
+  requestedShortcut: string;
+  activeShortcut: string;
 };
 
 export type TodoDatabase = {

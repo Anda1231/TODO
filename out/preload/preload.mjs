@@ -8,9 +8,12 @@ const api = {
   getCalendar: (year, month) => ipcRenderer.invoke("todos:getCalendar", year, month),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setDesktopAttachEnabled: (enabled) => ipcRenderer.invoke("settings:setDesktopAttachEnabled", enabled),
+  setDisplayMode: (displayMode) => ipcRenderer.invoke("settings:setDisplayMode", displayMode),
+  setLaunchAtLogin: (enabled) => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   setShortcut: (shortcut) => ipcRenderer.invoke("settings:setShortcut", shortcut),
   openAddTodo: () => ipcRenderer.invoke("windows:openAddTodo"),
   openCalendar: () => ipcRenderer.invoke("windows:openCalendar"),
+  openSettings: () => ipcRenderer.invoke("windows:openSettings"),
   closeCurrentWindow: () => ipcRenderer.invoke("windows:closeCurrent"),
   hideWidget: () => ipcRenderer.invoke("windows:hideWidget"),
   showWidget: () => ipcRenderer.invoke("windows:showWidget"),
@@ -24,6 +27,11 @@ const api = {
     const listener = (_event, attached) => callback(attached);
     ipcRenderer.on("desktop-attach:result", listener);
     return () => ipcRenderer.removeListener("desktop-attach:result", listener);
+  },
+  onSettingsChanged: (callback) => {
+    const listener = (_event, settings) => callback(settings);
+    ipcRenderer.on("settings:changed", listener);
+    return () => ipcRenderer.removeListener("settings:changed", listener);
   },
   onQuickAddFocus: (callback) => {
     const listener = () => callback();

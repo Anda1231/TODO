@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, TodoCalendarDay, TodoDraft, TodoSnapshot } from "../src/types/todo";
+import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot } from "../src/types/todo";
 
 const api = {
   getSnapshot: (): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:getSnapshot"),
@@ -12,9 +12,13 @@ const api = {
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke("settings:get"),
   setDesktopAttachEnabled: (enabled: boolean): Promise<AppSettings> =>
     ipcRenderer.invoke("settings:setDesktopAttachEnabled", enabled),
-  setShortcut: (shortcut: string): Promise<AppSettings> => ipcRenderer.invoke("settings:setShortcut", shortcut),
+  setDisplayMode: (displayMode: AppSettings["displayMode"]): Promise<AppSettings> =>
+    ipcRenderer.invoke("settings:setDisplayMode", displayMode),
+  setLaunchAtLogin: (enabled: boolean): Promise<AppSettings> => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
+  setShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> => ipcRenderer.invoke("settings:setShortcut", shortcut),
   openAddTodo: (): Promise<void> => ipcRenderer.invoke("windows:openAddTodo"),
   openCalendar: (): Promise<void> => ipcRenderer.invoke("windows:openCalendar"),
+  openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   closeCurrentWindow: (): Promise<void> => ipcRenderer.invoke("windows:closeCurrent"),
   hideWidget: (): Promise<void> => ipcRenderer.invoke("windows:hideWidget"),
   showWidget: (): Promise<void> => ipcRenderer.invoke("windows:showWidget"),
@@ -28,6 +32,11 @@ const api = {
     const listener = (_event: Electron.IpcRendererEvent, attached: boolean): void => callback(attached);
     ipcRenderer.on("desktop-attach:result", listener);
     return () => ipcRenderer.removeListener("desktop-attach:result", listener);
+  },
+  onSettingsChanged: (callback: (settings: AppSettings) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, settings: AppSettings): void => callback(settings);
+    ipcRenderer.on("settings:changed", listener);
+    return () => ipcRenderer.removeListener("settings:changed", listener);
   },
   onQuickAddFocus: (callback: () => void): (() => void) => {
     const listener = (): void => callback();

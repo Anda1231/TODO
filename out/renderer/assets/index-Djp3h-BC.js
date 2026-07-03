@@ -12454,12 +12454,6 @@ function requireClient() {
 }
 var clientExports = requireClient();
 const ReactDOM = /* @__PURE__ */ getDefaultExportFromCjs(clientExports);
-const shortcutOptions = [
-  { value: "CommandOrControl+Alt+T", label: "Ctrl + Alt + T" },
-  { value: "CommandOrControl+Alt+N", label: "Ctrl + Alt + N" },
-  { value: "CommandOrControl+Shift+Space", label: "Ctrl + Shift + Space" },
-  { value: "CommandOrControl+Alt+D", label: "Ctrl + Alt + D" }
-];
 const emptySnapshot = {
   today: "",
   activeTodos: [],
@@ -12474,7 +12468,21 @@ const formatDate = (date) => {
     weekday: "long"
   }).format(/* @__PURE__ */ new Date(`${date}T00:00:00`));
 };
-const formatShortcut = (shortcut) => (shortcut ?? "CommandOrControl+Alt+T").replace("CommandOrControl", "Ctrl").replace(/\+/g, " + ");
+const formatShortcut$1 = (shortcut) => (shortcut ?? "CommandOrControl+Alt+T").replace("CommandOrControl", "Ctrl").replace(/\+/g, " + ");
+const Icon = ({ name }) => {
+  const paths = {
+    calendar: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "5", y: "6", width: "14", height: "13", rx: "2" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M8 4v4M16 4v4M5 10h14" })
+    ] }),
+    quit: /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M7 7l10 10M17 7 7 17" }) }),
+    settings: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { cx: "12", cy: "12", r: "3" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 0 0-2 .2 1.7 1.7 0 0 0-.8 1.7V22h-3.6v-.1a1.7 1.7 0 0 0-1.2-1.6 1.7 1.7 0 0 0-1.8.2l-.2.1-1.8-3.1.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.4-1.1H5v-3.6h.2a1.7 1.7 0 0 0 1.4-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-3.1.2.1a1.7 1.7 0 0 0 2-.2A1.7 1.7 0 0 0 11 2.8V2h3.6v.8a1.7 1.7 0 0 0 1.2 1.6 1.7 1.7 0 0 0 1.8-.2l.2-.1 1.8 3.1-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.4 1.1h.2v3.6h-.2a1.7 1.7 0 0 0-1.2 1.1Z" })
+    ] })
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", className: "button-icon", viewBox: "0 0 24 24", children: paths[name] });
+};
 function App() {
   const [snapshot, setSnapshot] = reactExports.useState(emptySnapshot);
   const [newTitle, setNewTitle] = reactExports.useState("");
@@ -12485,9 +12493,11 @@ function App() {
     void window.todoApi.getSettings().then(setSettings);
     const offTodos = window.todoApi.onTodosChanged(setSnapshot);
     const offDesktop = window.todoApi.onDesktopAttachResult(setDesktopAttached);
+    const offSettings = window.todoApi.onSettingsChanged(setSettings);
     return () => {
       offTodos();
       offDesktop();
+      offSettings();
     };
   }, []);
   const remainingLabel = reactExports.useMemo(() => {
@@ -12502,10 +12512,6 @@ function App() {
     setSnapshot(next);
     setNewTitle("");
   };
-  const changeShortcut = async (shortcut) => {
-    const next = await window.todoApi.setShortcut(shortcut);
-    setSettings(next);
-  };
   return /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "widget-shell", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "widget-card", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "widget-header draggable", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -12513,9 +12519,19 @@ function App() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "桌面代办" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "header-actions no-drag", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", onClick: () => window.todoApi.openCalendar(), children: "日历" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", onClick: () => window.todoApi.hideWidget(), children: "隐藏" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button danger-button", type: "button", onClick: () => window.todoApi.quitApp(), children: "退出" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", title: "完成日历", "aria-label": "完成日历", onClick: () => window.todoApi.openCalendar(), children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "calendar" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "icon-button",
+            type: "button",
+            title: "设置",
+            "aria-label": "设置",
+            onClick: () => window.todoApi.openSettings(),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "settings" })
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button danger-button", type: "button", title: "退出应用", "aria-label": "退出应用", onClick: () => window.todoApi.quitApp(), children: /* @__PURE__ */ jsxRuntimeExports.jsx(Icon, { name: "quit" }) })
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "quick-form no-drag", onSubmit: addTodo, children: [
@@ -12538,7 +12554,7 @@ function App() {
       /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "今天清空了" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
         "全局快捷键 ",
-        formatShortcut(settings?.shortcut),
+        formatShortcut$1(settings?.shortcut),
         " 可以随时添加。"
       ] })
     ] }) : snapshot.activeTodos.map((todo) => /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "todo-item", children: [
@@ -12561,13 +12577,7 @@ function App() {
       ] }),
       snapshot.completedToday.slice(0, 3).map((todo) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "completed-item", type: "button", onClick: () => window.todoApi.reopenTodo(todo.id), children: todo.title }, todo.id))
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { className: "widget-footer no-drag", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "shortcut-row", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "快捷键" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: settings?.shortcut ?? shortcutOptions[0].value, onChange: (event) => changeShortcut(event.target.value), children: shortcutOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value)) })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: desktopAttached === false ? "桌面固定失败，仍可从托盘显示组件" : `${formatShortcut(settings?.shortcut)} 呼出添加，托盘图标可显示组件` })
-    ] })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("footer", { className: "widget-footer no-drag", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: desktopAttached === false ? "桌面固定失败，可切到当前页面显示" : `${formatShortcut$1(settings?.shortcut)} 呼出添加，托盘图标可显示组件` }) })
   ] }) });
 }
 function AddTodoWindow() {
@@ -12713,10 +12723,109 @@ function CalendarView() {
     ] })
   ] }) });
 }
+const formatShortcut = (shortcut) => (shortcut ?? "CommandOrControl+Alt+T").replace("CommandOrControl", "Ctrl").replace(/\+/g, " + ");
+const keyToAcceleratorPart = (key, code) => {
+  if (key === " ") return "Space";
+  if (key === "Escape") return "Esc";
+  if (key.startsWith("Arrow")) return key.replace("Arrow", "");
+  if (/^F\d{1,2}$/.test(key)) return key;
+  if (/^[a-z]$/i.test(key)) return key.toUpperCase();
+  if (/^\d$/.test(key)) return key;
+  if (code.startsWith("Numpad") && code.length > "Numpad".length) return code.replace("Numpad", "num");
+  return key.length === 1 ? key.toUpperCase() : key;
+};
+const eventToShortcut = (event) => {
+  const parts = [];
+  if (event.ctrlKey || event.metaKey) parts.push("CommandOrControl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  if (!["Control", "Shift", "Alt", "Meta"].includes(event.key)) {
+    parts.push(keyToAcceleratorPart(event.key, event.code));
+  }
+  return parts.join("+");
+};
+function SettingsWindow() {
+  const [settings, setSettings] = reactExports.useState(null);
+  const [shortcutDraft, setShortcutDraft] = reactExports.useState("");
+  const [message, setMessage] = reactExports.useState("点击输入框后按下任意组合键");
+  reactExports.useEffect(() => {
+    void window.todoApi.getSettings().then((nextSettings) => {
+      setSettings(nextSettings);
+      setShortcutDraft(nextSettings.shortcut);
+    });
+    return window.todoApi.onSettingsChanged((nextSettings) => {
+      setSettings(nextSettings);
+      setShortcutDraft(nextSettings.shortcut);
+    });
+  }, []);
+  const shortcutLabel = reactExports.useMemo(() => formatShortcut(shortcutDraft || settings?.shortcut), [settings?.shortcut, shortcutDraft]);
+  const updateShortcut = async (shortcut) => {
+    if (!shortcut) {
+      setMessage("请按下想要设置的快捷键");
+      return;
+    }
+    const result = await window.todoApi.setShortcut(shortcut);
+    setSettings(result.settings);
+    setShortcutDraft(result.settings.shortcut);
+    setMessage(result.registered ? `已设置为 ${formatShortcut(result.activeShortcut)}` : "快捷键被占用或不可用，已保留原设置");
+  };
+  const updateLaunchAtLogin = async (enabled) => {
+    const next = await window.todoApi.setLaunchAtLogin(enabled);
+    setSettings(next);
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "settings-window-shell", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-window-card", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "settings-window-header draggable", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "eyebrow", children: "设置" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "偏好设置" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "close-button no-drag", type: "button", "aria-label": "关闭设置", onClick: () => window.todoApi.closeCurrentWindow(), children: "×" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "settings-option no-drag", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "开机自动启动" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "登录 Windows 后自动启动桌面代办。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          type: "checkbox",
+          checked: settings?.launchAtLogin ?? false,
+          onChange: (event) => updateLaunchAtLogin(event.target.checked)
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-option vertical no-drag", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "快速添加快捷键" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "点击输入框后直接按下想要的组合键。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          className: "shortcut-capture",
+          value: shortcutLabel,
+          readOnly: true,
+          onKeyDown: (event) => {
+            event.preventDefault();
+            const shortcut = eventToShortcut(event);
+            if (shortcut) {
+              setShortcutDraft(shortcut);
+              void updateShortcut(shortcut);
+            }
+          },
+          onFocus: () => setMessage("正在录制，按下任意组合键")
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "settings-message", children: message })
+    ] })
+  ] }) });
+}
 const view = new URLSearchParams(window.location.search).get("view") ?? "widget";
 const View = () => {
   if (view === "add") return /* @__PURE__ */ jsxRuntimeExports.jsx(AddTodoWindow, {});
   if (view === "calendar") return /* @__PURE__ */ jsxRuntimeExports.jsx(CalendarView, {});
+  if (view === "settings") return /* @__PURE__ */ jsxRuntimeExports.jsx(SettingsWindow, {});
   return /* @__PURE__ */ jsxRuntimeExports.jsx(App, {});
 };
 ReactDOM.createRoot(document.getElementById("root")).render(

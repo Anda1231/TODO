@@ -41,14 +41,16 @@ select {
 
 .widget-shell,
 .quick-add-shell,
-.calendar-shell {
+.calendar-shell,
+.settings-window-shell {
   min-height: 100vh;
   padding: 12px;
 }
 
 .widget-card,
 .quick-add-card,
-.calendar-card {
+.calendar-card,
+.settings-window-card {
   width: 100%;
   height: calc(100vh - 24px);
   border: 1px solid rgba(255, 255, 255, 0.55);
@@ -68,6 +70,7 @@ select {
 .widget-header,
 .quick-add-header,
 .calendar-header,
+.settings-window-header,
 .header-actions,
 .summary-row,
 .section-title,
@@ -105,13 +108,35 @@ h2 {
 .summary-row button,
 .calendar-actions button,
 .text-button,
-.detail-item button,
-.shortcut-row select {
+.detail-item button {
   border: 0;
   border-radius: 999px;
   background: #e0f2fe;
   color: #0369a1;
   padding: 8px 12px;
+}
+
+.icon-button {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+}
+
+.icon-button.active {
+  background: #0284c7;
+  color: white;
+}
+
+.button-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .header-actions {
@@ -121,6 +146,19 @@ h2 {
 .danger-button {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.close-button {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 20px;
+  line-height: 1;
 }
 
 .quick-form {
@@ -217,6 +255,80 @@ h2 {
   padding-top: 12px;
 }
 
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.28);
+  padding-top: 12px;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.segmented-control,
+.shortcut-editor,
+.preset-row {
+  display: flex;
+  gap: 6px;
+}
+
+.segmented-control button,
+.shortcut-editor button,
+.preset-row button {
+  border: 0;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 7px 10px;
+}
+
+.segmented-control button.selected {
+  background: #0284c7;
+  color: white;
+}
+
+.shortcut-setting {
+  grid-template-columns: 1fr;
+}
+
+.shortcut-editor {
+  display: grid;
+  grid-template-columns: 1fr auto;
+}
+
+.shortcut-editor input {
+  min-width: 0;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  outline: none;
+  padding: 8px 12px;
+}
+
+.shortcut-editor input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
+}
+
+.preset-row {
+  flex-wrap: wrap;
+}
+
+.preset-row button {
+  font-size: 11px;
+  padding: 5px 8px;
+}
+
+.toggle-row input {
+  justify-self: end;
+}
+
 .completed-item {
   overflow: hidden;
   border: 0;
@@ -243,11 +355,6 @@ h2 {
   color: #334155;
 }
 
-.shortcut-row select {
-  max-width: 150px;
-  outline: none;
-}
-
 .quick-add-shell {
   padding: 10px;
 }
@@ -262,6 +369,68 @@ h2 {
 
 .quick-add-card input {
   font-size: 18px;
+}
+
+.settings-window-shell {
+  padding: 10px;
+}
+
+.settings-window-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: calc(100vh - 20px);
+  padding: 18px;
+}
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.92);
+  color: #334155;
+  padding: 14px;
+}
+
+.settings-option.vertical {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.settings-option div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-option strong {
+  color: #0f172a;
+}
+
+.settings-option span,
+.settings-message {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.shortcut-capture {
+  width: 100%;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: white;
+  outline: none;
+  padding: 12px 14px;
+}
+
+.shortcut-capture:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
+}
+
+.settings-message {
+  margin: 0;
 }
 
 .calendar-shell {

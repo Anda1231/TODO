@@ -2,11 +2,12 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen,
 import { join } from "node:path";
 import { attachWindowToDesktop } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
-import type { TodoDraft, WindowBounds } from "../src/types/todo";
+import type { ShortcutRegistrationResult, TodoDraft, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
 
 let widgetWindow: BrowserWindow | null = null;
 let addTodoWindow: BrowserWindow | null = null;
 let calendarWindow: BrowserWindow | null = null;
+let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let store: TodoStore;
 let saveBoundsTimer: NodeJS.Timeout | undefined;
@@ -19,7 +20,7 @@ const fallbackTrayIconDataUrl =
     `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#0284c7"/><path d="M9 16.5l4 4L23 10.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
   );
 
-const loadRenderer = async (window: BrowserWindow, view: "widget" | "add" | "calendar"): Promise<void> => {
+const loadRenderer = async (window: BrowserWindow, view: "widget" | "add" | "calendar" | "settings"): Promise<void> => {
   if (rendererUrl) {
     await window.loadURL(`${rendererUrl}?view=${view}`);
     return;
@@ -30,10 +31,37 @@ const loadRenderer = async (window: BrowserWindow, view: "widget" | "add" | "cal
   });
 };
 
+const normalizeShortcut = (input: string): string => {
+  const parts = input
+    .trim()
+    .replace(/\s+/g, "")
+    .split("+")
+    .filter(Boolean);
+
+  const normalized = parts.map((part) => {
+    const lower = part.toLowerCase();
+    if (["ctrl", "control", "cmdorctrl", "commandorcontrol"].includes(lower)) return "CommandOrControl";
+    if (["cmd", "command"].includes(lower)) return "Command";
+    if (lower === "option") return "Alt";
+    if (lower === "escape") return "Esc";
+    if (lower === "spacebar") return "Space";
+    return part.length === 1 ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1);
+  });
+
+  return normalized.join("+");
+};
+
 const broadcastSnapshot = (): void => {
   const snapshot = store.getSnapshot();
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("todos:changed", snapshot);
+  }
+};
+
+const broadcastSettings = (): void => {
+  const settings = store.getSettings();
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("settings:changed", settings);
   }
 };
 
@@ -43,7 +71,53 @@ const showWidgetWindow = (): void => {
     return;
   }
 
+  if (store.getSettings().displayMode === "float") {
+    widgetWindow.setAlwaysOnTop(true, "floating");
+    widgetWindow.moveTop();
+    widgetWindow.show();
+    widgetWindow.focus();
+    return;
+  }
+
   widgetWindow.showInactive();
+};
+
+const applyLoginSetting = (enabled: boolean): void => {
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    path: process.execPath
+  });
+};
+
+const recreateWidgetWindow = async (): Promise<void> => {
+  const existingWindow = widgetWindow;
+  widgetWindow = null;
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    store.updateWidgetBounds(existingWindow.getBounds());
+    existingWindow.destroy();
+  }
+  await createWidgetWindow();
+};
+
+const applyWidgetDisplayMode = async (): Promise<void> => {
+  if (!widgetWindow) return;
+
+  const settings = store.getSettings();
+  if (settings.displayMode === "float") {
+    widgetWindow.setSkipTaskbar(false);
+    widgetWindow.setAlwaysOnTop(true, "floating");
+    widgetWindow.show();
+    widgetWindow.focus();
+    widgetWindow.moveTop();
+    widgetWindow.webContents.send("desktop-attach:result", true);
+    return;
+  }
+
+  widgetWindow.setSkipTaskbar(true);
+  widgetWindow.setAlwaysOnTop(false);
+  widgetWindow.showInactive();
+  const attached = await attachWindowToDesktop(widgetWindow);
+  widgetWindow.webContents.send("desktop-attach:result", attached);
 };
 
 const defaultWidgetBounds = (): WindowBounds => {
@@ -79,7 +153,7 @@ const createWidgetWindow = async (): Promise<void> => {
     backgroundColor: "#00000000",
     hasShadow: false,
     resizable: true,
-    skipTaskbar: true,
+    skipTaskbar: settings.displayMode === "desktop",
     show: false,
     title: "桌面代办",
     webPreferences: {
@@ -98,12 +172,7 @@ const createWidgetWindow = async (): Promise<void> => {
 
   await loadRenderer(widgetWindow, "widget");
   widgetWindow.once("ready-to-show", async () => {
-    widgetWindow?.showInactive();
-
-    if (settings.desktopAttachEnabled && widgetWindow) {
-      const attached = await attachWindowToDesktop(widgetWindow);
-      widgetWindow.webContents.send("desktop-attach:result", attached);
-    }
+    await applyWidgetDisplayMode();
   });
 };
 
@@ -178,6 +247,50 @@ const createCalendarWindow = async (): Promise<void> => {
   calendarWindow.once("ready-to-show", () => calendarWindow?.show());
 };
 
+const createSettingsWindow = async (): Promise<void> => {
+  if (settingsWindow) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+
+  const parentBounds = widgetWindow?.getBounds() ?? defaultWidgetBounds();
+  settingsWindow = new BrowserWindow({
+    width: 420,
+    height: 320,
+    x: parentBounds.x + 24,
+    y: parentBounds.y + 64,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    title: "设置",
+    webPreferences: {
+      preload: join(__dirname, "../preload/preload.mjs"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  settingsWindow.on("blur", () => settingsWindow?.hide());
+  settingsWindow.on("closed", () => {
+    settingsWindow = null;
+  });
+
+  await loadRenderer(settingsWindow, "settings");
+  settingsWindow.once("ready-to-show", () => {
+    settingsWindow?.show();
+    settingsWindow?.focus();
+  });
+};
+
+const applySettings = (settings: ReturnType<TodoStore["getSettings"]>): ReturnType<TodoStore["getSettings"]> => {
+  broadcastSettings();
+  return settings;
+};
+
 const registerIpc = (): void => {
   ipcMain.handle("todos:getSnapshot", () => store.refreshDaily());
   ipcMain.handle("todos:add", (_event, draft: TodoDraft) => {
@@ -210,38 +323,67 @@ const registerIpc = (): void => {
     }
     return settings;
   });
+  ipcMain.handle("settings:setDisplayMode", async (_event, displayMode: WidgetDisplayMode) => {
+    const settings = store.setDisplayMode(displayMode);
+    await recreateWidgetWindow();
+    return settings;
+  });
+  ipcMain.handle("settings:setLaunchAtLogin", (_event, enabled: boolean) => {
+    applyLoginSetting(enabled);
+    return applySettings(store.setLaunchAtLogin(enabled));
+  });
   ipcMain.handle("settings:setShortcut", (_event, shortcut: string) => registerShortcut(shortcut));
   ipcMain.handle("windows:openAddTodo", () => createAddTodoWindow());
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
+  ipcMain.handle("windows:openSettings", () => createSettingsWindow());
   ipcMain.handle("windows:closeCurrent", (event) => BrowserWindow.fromWebContents(event.sender)?.hide());
   ipcMain.handle("windows:hideWidget", () => widgetWindow?.hide());
   ipcMain.handle("windows:showWidget", () => showWidgetWindow());
   ipcMain.handle("app:quit", () => app.quit());
 }
 
-const registerShortcut = (requestedShortcut?: string): ReturnType<TodoStore["getSettings"]> => {
+const registerShortcut = (requestedShortcut?: string): ShortcutRegistrationResult => {
   globalShortcut.unregisterAll();
-  const preferredShortcut = requestedShortcut?.trim() || store.getSettings().shortcut;
-  const shortcutCandidates = [preferredShortcut, ...fallbackShortcuts].filter(
-    (shortcut, index, shortcuts) => shortcuts.indexOf(shortcut) === index
-  );
+  const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : store.getSettings().shortcut;
+  const shortcutCandidates = requestedShortcut
+    ? [preferredShortcut]
+    : [preferredShortcut, ...fallbackShortcuts].filter((shortcut, index, shortcuts) => shortcuts.indexOf(shortcut) === index);
 
   for (const shortcut of shortcutCandidates) {
-    const registered = globalShortcut.register(shortcut, () => {
-      void createAddTodoWindow();
-    });
+    let registered = false;
+    try {
+      registered = globalShortcut.register(shortcut, () => {
+        void createAddTodoWindow();
+      });
+    } catch {
+      registered = false;
+    }
 
     if (registered) {
       store.setShortcut(shortcut);
       if (shortcut !== preferredShortcut) {
         console.warn(`Preferred shortcut unavailable. Registered fallback shortcut: ${shortcut}`);
       }
-      return store.getSettings();
+      broadcastSettings();
+      return {
+        settings: store.getSettings(),
+        registered: true,
+        requestedShortcut: preferredShortcut,
+        activeShortcut: shortcut
+      };
     }
   }
 
   console.warn(`Failed to register shortcuts: ${shortcutCandidates.join(", ")}`);
-  return store.getSettings();
+  if (requestedShortcut) {
+    registerShortcut();
+  }
+  return {
+    settings: store.getSettings(),
+    registered: false,
+    requestedShortcut: preferredShortcut,
+    activeShortcut: store.getSettings().shortcut
+  };
 };
 
 const createTray = (): void => {
@@ -264,6 +406,10 @@ const createTray = (): void => {
         label: "完成日历",
         click: () => void createCalendarWindow()
       },
+      {
+        label: "设置",
+        click: () => void createSettingsWindow()
+      },
       { type: "separator" },
       {
         label: "退出",
@@ -276,7 +422,7 @@ const createTray = (): void => {
 
 const boot = async (): Promise<void> => {
   store = new TodoStore();
-  store.setDesktopAttachEnabled(true);
+  applyLoginSetting(store.getSettings().launchAtLogin);
   store.refreshDaily();
   registerIpc();
   await createWidgetWindow();
