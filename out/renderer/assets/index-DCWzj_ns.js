@@ -12747,18 +12747,26 @@ const eventToShortcut = (event) => {
 function SettingsWindow() {
   const [settings, setSettings] = reactExports.useState(null);
   const [shortcutDraft, setShortcutDraft] = reactExports.useState("");
+  const [showWidgetShortcutDraft, setShowWidgetShortcutDraft] = reactExports.useState("");
   const [message, setMessage] = reactExports.useState("点击输入框后按下任意组合键");
+  const [showWidgetMessage, setShowWidgetMessage] = reactExports.useState("点击输入框后按下任意组合键");
   reactExports.useEffect(() => {
     void window.todoApi.getSettings().then((nextSettings) => {
       setSettings(nextSettings);
       setShortcutDraft(nextSettings.shortcut);
+      setShowWidgetShortcutDraft(nextSettings.showWidgetShortcut);
     });
     return window.todoApi.onSettingsChanged((nextSettings) => {
       setSettings(nextSettings);
       setShortcutDraft(nextSettings.shortcut);
+      setShowWidgetShortcutDraft(nextSettings.showWidgetShortcut);
     });
   }, []);
   const shortcutLabel = reactExports.useMemo(() => formatShortcut(shortcutDraft || settings?.shortcut), [settings?.shortcut, shortcutDraft]);
+  const showWidgetShortcutLabel = reactExports.useMemo(
+    () => formatShortcut(showWidgetShortcutDraft || settings?.showWidgetShortcut),
+    [settings?.showWidgetShortcut, showWidgetShortcutDraft]
+  );
   const updateShortcut = async (shortcut) => {
     if (!shortcut) {
       setMessage("请按下想要设置的快捷键");
@@ -12768,6 +12776,16 @@ function SettingsWindow() {
     setSettings(result.settings);
     setShortcutDraft(result.settings.shortcut);
     setMessage(result.registered ? `已设置为 ${formatShortcut(result.activeShortcut)}` : "快捷键被占用或不可用，已保留原设置");
+  };
+  const updateShowWidgetShortcut = async (shortcut) => {
+    if (!shortcut) {
+      setShowWidgetMessage("请按下想要设置的快捷键");
+      return;
+    }
+    const result = await window.todoApi.setShowWidgetShortcut(shortcut);
+    setSettings(result.settings);
+    setShowWidgetShortcutDraft(result.settings.showWidgetShortcut);
+    setShowWidgetMessage(result.registered ? `已设置为 ${formatShortcut(result.activeShortcut)}` : "快捷键被占用或不可用，已保留原设置");
   };
   const updateLaunchAtLogin = async (enabled) => {
     const next = await window.todoApi.setLaunchAtLogin(enabled);
@@ -12812,8 +12830,8 @@ function SettingsWindow() {
             type: "button",
             onClick: () => updateDisplayMode("float"),
             children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "一直悬浮在页面" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "组件始终在当前页面上方显示。" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "置顶" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "组件始终置顶显示在当前页面上方。" })
             ]
           }
         ),
@@ -12824,7 +12842,7 @@ function SettingsWindow() {
             type: "button",
             onClick: () => updateDisplayMode("desktop"),
             children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "只悬浮在桌面上" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "只置顶在桌面" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "平时贴在桌面，点击托盘图标时可出现在任何页面。" })
             ]
           }
@@ -12854,6 +12872,30 @@ function SettingsWindow() {
         }
       ),
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "settings-message", children: message })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-option vertical no-drag", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "显示组件快捷键" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "点击输入框后按下快捷键，用来临时显示组件。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          className: "shortcut-capture",
+          value: showWidgetShortcutLabel,
+          readOnly: true,
+          onKeyDown: (event) => {
+            event.preventDefault();
+            const shortcut = eventToShortcut(event);
+            if (shortcut) {
+              setShowWidgetShortcutDraft(shortcut);
+              void updateShowWidgetShortcut(shortcut);
+            }
+          },
+          onFocus: () => setShowWidgetMessage("正在录制，按下任意组合键")
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "settings-message", children: showWidgetMessage })
     ] })
   ] }) });
 }

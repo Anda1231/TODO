@@ -41,6 +41,7 @@ export type AppSettings = {
   displayMode: WidgetDisplayMode;
   launchAtLogin: boolean;
   shortcut: string;
+  showWidgetShortcut: string;
 };
 
 export type ShortcutRegistrationResult = {

@@ -34,21 +34,29 @@ const eventToShortcut = (event: React.KeyboardEvent<HTMLInputElement>): string =
 export default function SettingsWindow(): React.ReactElement {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [shortcutDraft, setShortcutDraft] = useState("");
+  const [showWidgetShortcutDraft, setShowWidgetShortcutDraft] = useState("");
   const [message, setMessage] = useState("点击输入框后按下任意组合键");
+  const [showWidgetMessage, setShowWidgetMessage] = useState("点击输入框后按下任意组合键");
 
   useEffect(() => {
     void window.todoApi.getSettings().then((nextSettings) => {
       setSettings(nextSettings);
       setShortcutDraft(nextSettings.shortcut);
+      setShowWidgetShortcutDraft(nextSettings.showWidgetShortcut);
     });
 
     return window.todoApi.onSettingsChanged((nextSettings) => {
       setSettings(nextSettings);
       setShortcutDraft(nextSettings.shortcut);
+      setShowWidgetShortcutDraft(nextSettings.showWidgetShortcut);
     });
   }, []);
 
   const shortcutLabel = useMemo(() => formatShortcut(shortcutDraft || settings?.shortcut), [settings?.shortcut, shortcutDraft]);
+  const showWidgetShortcutLabel = useMemo(
+    () => formatShortcut(showWidgetShortcutDraft || settings?.showWidgetShortcut),
+    [settings?.showWidgetShortcut, showWidgetShortcutDraft]
+  );
 
   const updateShortcut = async (shortcut: string): Promise<void> => {
     if (!shortcut) {
@@ -60,6 +68,18 @@ export default function SettingsWindow(): React.ReactElement {
     setSettings(result.settings);
     setShortcutDraft(result.settings.shortcut);
     setMessage(result.registered ? `已设置为 ${formatShortcut(result.activeShortcut)}` : "快捷键被占用或不可用，已保留原设置");
+  };
+
+  const updateShowWidgetShortcut = async (shortcut: string): Promise<void> => {
+    if (!shortcut) {
+      setShowWidgetMessage("请按下想要设置的快捷键");
+      return;
+    }
+
+    const result = await window.todoApi.setShowWidgetShortcut(shortcut);
+    setSettings(result.settings);
+    setShowWidgetShortcutDraft(result.settings.showWidgetShortcut);
+    setShowWidgetMessage(result.registered ? `已设置为 ${formatShortcut(result.activeShortcut)}` : "快捷键被占用或不可用，已保留原设置");
   };
 
   const updateLaunchAtLogin = async (enabled: boolean): Promise<void> => {
@@ -108,15 +128,15 @@ export default function SettingsWindow(): React.ReactElement {
               type="button"
               onClick={() => updateDisplayMode("float")}
             >
-              <strong>一直悬浮在页面</strong>
-              <span>组件始终在当前页面上方显示。</span>
+              <strong>置顶</strong>
+              <span>组件始终置顶显示在当前页面上方。</span>
             </button>
             <button
               className={settings?.displayMode === "desktop" ? "selected" : ""}
               type="button"
               onClick={() => updateDisplayMode("desktop")}
             >
-              <strong>只悬浮在桌面上</strong>
+              <strong>只置顶在桌面</strong>
               <span>平时贴在桌面，点击托盘图标时可出现在任何页面。</span>
             </button>
           </div>
@@ -142,6 +162,28 @@ export default function SettingsWindow(): React.ReactElement {
             onFocus={() => setMessage("正在录制，按下任意组合键")}
           />
           <p className="settings-message">{message}</p>
+        </section>
+
+        <section className="settings-option vertical no-drag">
+          <div>
+            <strong>显示组件快捷键</strong>
+            <span>点击输入框后按下快捷键，用来临时显示组件。</span>
+          </div>
+          <input
+            className="shortcut-capture"
+            value={showWidgetShortcutLabel}
+            readOnly
+            onKeyDown={(event) => {
+              event.preventDefault();
+              const shortcut = eventToShortcut(event);
+              if (shortcut) {
+                setShowWidgetShortcutDraft(shortcut);
+                void updateShowWidgetShortcut(shortcut);
+              }
+            }}
+            onFocus={() => setShowWidgetMessage("正在录制，按下任意组合键")}
+          />
+          <p className="settings-message">{showWidgetMessage}</p>
         </section>
       </section>
     </main>

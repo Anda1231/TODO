@@ -320,7 +320,7 @@ const createSettingsWindow = async (): Promise<void> => {
   const parentBounds = widgetWindow?.getBounds() ?? defaultWidgetBounds();
   settingsWindow = new BrowserWindow({
     width: 420,
-    height: 420,
+    height: 560,
     x: parentBounds.x + 24,
     y: parentBounds.y + 64,
     frame: false,
@@ -396,7 +396,8 @@ const registerIpc = (): void => {
     applyLoginSetting(enabled);
     return applySettings(store.setLaunchAtLogin(enabled));
   });
-  ipcMain.handle("settings:setShortcut", (_event, shortcut: string) => registerShortcut(shortcut));
+  ipcMain.handle("settings:setShortcut", (_event, shortcut: string) => updateShortcut("quickAdd", shortcut));
+  ipcMain.handle("settings:setShowWidgetShortcut", (_event, shortcut: string) => updateShortcut("showWidget", shortcut));
   ipcMain.handle("windows:openAddTodo", () => createAddTodoWindow());
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
@@ -406,9 +407,31 @@ const registerIpc = (): void => {
   ipcMain.handle("app:quit", () => app.quit());
 }
 
-const registerShortcut = (requestedShortcut?: string): ShortcutRegistrationResult => {
-  globalShortcut.unregisterAll();
-  const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : store.getSettings().shortcut;
+type ShortcutKind = "quickAdd" | "showWidget";
+
+const getShortcutValue = (kind: ShortcutKind): string =>
+  kind === "quickAdd" ? store.getSettings().shortcut : store.getSettings().showWidgetShortcut;
+
+const setShortcutValue = (kind: ShortcutKind, shortcut: string): void => {
+  if (kind === "quickAdd") {
+    store.setShortcut(shortcut);
+    return;
+  }
+
+  store.setShowWidgetShortcut(shortcut);
+};
+
+const runShortcutAction = (kind: ShortcutKind): void => {
+  if (kind === "quickAdd") {
+    void createAddTodoWindow();
+    return;
+  }
+
+  void showWidgetOnCurrentPage();
+};
+
+const registerShortcut = (kind: ShortcutKind, requestedShortcut?: string): ShortcutRegistrationResult => {
+  const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : getShortcutValue(kind);
   const shortcutCandidates = requestedShortcut
     ? [preferredShortcut]
     : [preferredShortcut, ...fallbackShortcuts].filter((shortcut, index, shortcuts) => shortcuts.indexOf(shortcut) === index);
@@ -417,18 +440,17 @@ const registerShortcut = (requestedShortcut?: string): ShortcutRegistrationResul
     let registered = false;
     try {
       registered = globalShortcut.register(shortcut, () => {
-        void createAddTodoWindow();
+        runShortcutAction(kind);
       });
     } catch {
       registered = false;
     }
 
     if (registered) {
-      store.setShortcut(shortcut);
+      setShortcutValue(kind, shortcut);
       if (shortcut !== preferredShortcut) {
         console.warn(`Preferred shortcut unavailable. Registered fallback shortcut: ${shortcut}`);
       }
-      broadcastSettings();
       return {
         settings: store.getSettings(),
         registered: true,
@@ -440,14 +462,39 @@ const registerShortcut = (requestedShortcut?: string): ShortcutRegistrationResul
 
   console.warn(`Failed to register shortcuts: ${shortcutCandidates.join(", ")}`);
   if (requestedShortcut) {
-    registerShortcut();
+    registerShortcut(kind);
   }
   return {
     settings: store.getSettings(),
     registered: false,
     requestedShortcut: preferredShortcut,
-    activeShortcut: store.getSettings().shortcut
+    activeShortcut: getShortcutValue(kind)
   };
+};
+
+const registerGlobalShortcuts = (): void => {
+  globalShortcut.unregisterAll();
+  registerShortcut("quickAdd");
+  registerShortcut("showWidget");
+};
+
+const updateShortcut = (kind: ShortcutKind, shortcut: string): ShortcutRegistrationResult => {
+  const requestedShortcut = normalizeShortcut(shortcut);
+  const otherKind = kind === "quickAdd" ? "showWidget" : "quickAdd";
+  if (requestedShortcut === getShortcutValue(otherKind)) {
+    return {
+      settings: store.getSettings(),
+      registered: false,
+      requestedShortcut,
+      activeShortcut: getShortcutValue(kind)
+    };
+  }
+
+  globalShortcut.unregisterAll();
+  const result = registerShortcut(kind, requestedShortcut);
+  registerShortcut(otherKind);
+  broadcastSettings();
+  return result;
 };
 
 const createTray = (): void => {
@@ -486,7 +533,7 @@ const boot = async (): Promise<void> => {
   store.refreshDaily();
   registerIpc();
   await createWidgetWindow();
-  registerShortcut();
+  registerGlobalShortcuts();
   createTray();
 };
 

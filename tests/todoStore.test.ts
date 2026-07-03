@@ -9,7 +9,8 @@ const database: TodoDatabase = {
     desktopAttachEnabled: true,
     displayMode: "desktop",
     launchAtLogin: false,
-    shortcut: "CommandOrControl+Alt+T"
+    shortcut: "CommandOrControl+Alt+T",
+    showWidgetShortcut: "CommandOrControl+Alt+W"
   },
   todos: [
     {

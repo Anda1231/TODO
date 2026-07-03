@@ -1,85 +1,71 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, Tray, Menu, screen } from "electron";
 import { join, dirname } from "node:path";
-import { spawn } from "node:child_process";
+import koffi from "koffi";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import __cjs_mod__ from "node:module";
 const __filename = import.meta.filename;
 const __dirname = import.meta.dirname;
 const require2 = __cjs_mod__.createRequire(import.meta.url);
+const user32 = koffi.load("user32.dll");
+const kernel32 = koffi.load("kernel32.dll");
+const HWND = koffi.alias("HWND", "void *");
+const FindWindowW = user32.func("HWND __stdcall FindWindowW(str16 _lpClassName, str16 _lpWindowName)");
+const FindWindowExW = user32.func(
+  "HWND __stdcall FindWindowExW(HWND hWndParent, HWND hWndChildAfter, str16 lpszClass, str16 lpszWindow)"
+);
+const SetParent = user32.func("HWND __stdcall SetParent(HWND hWndChild, HWND hWndNewParent)");
+const GetLastError = kernel32.func("uint32 __stdcall GetLastError()");
+const SendMessageTimeoutW = user32.func(
+  "uintptr_t __stdcall SendMessageTimeoutW(HWND hWnd, uint32 Msg, uintptr_t wParam, intptr_t lParam, uint32 fuFlags, uint32 uTimeout, _Out_ uintptr_t *lpdwResult)"
+);
+const WM_SPAWN_WORKER = 1324;
 const readHwnd = (window) => {
   const handle = window.getNativeWindowHandle();
-  return process.arch === "x64" ? handle.readBigUInt64LE().toString() : String(handle.readUInt32LE());
+  return koffi.decode(handle, HWND);
+};
+const findDesktopWorkerW = () => {
+  const progman = FindWindowW("Progman", null);
+  if (!progman) {
+    return null;
+  }
+  const resultPtr = koffi.alloc("uintptr_t", 1);
+  SendMessageTimeoutW(progman, WM_SPAWN_WORKER, 0, 0, 0, 1e3, resultPtr);
+  koffi.free(resultPtr);
+  let workerw = null;
+  let current = null;
+  while (true) {
+    current = FindWindowExW(null, current, "WorkerW", null);
+    if (!current) {
+      break;
+    }
+    const shellView = FindWindowExW(current, null, "SHELLDLL_DefView", null);
+    if (shellView) {
+      workerw = FindWindowExW(null, current, "WorkerW", null);
+      break;
+    }
+  }
+  return workerw ?? progman;
 };
 const attachWindowToDesktop = async (window) => {
   if (process.platform !== "win32") {
     return false;
   }
-  const hwnd = readHwnd(window);
-  const script = `
-param([IntPtr]$targetHwnd)
-
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-
-public static class Win32Desktop {
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr FindWindowEx(IntPtr parentHandle, IntPtr childAfter, string className, string windowTitle);
-
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
-
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
-}
-"@
-
-$progman = [Win32Desktop]::FindWindow("Progman", $null)
-$result = [IntPtr]::Zero
-[Win32Desktop]::SendMessageTimeout($progman, 0x052C, [IntPtr]::Zero, [IntPtr]::Zero, 0, 1000, [ref]$result) | Out-Null
-
-$workerw = [IntPtr]::Zero
-$current = [IntPtr]::Zero
-do {
-  $current = [Win32Desktop]::FindWindowEx([IntPtr]::Zero, $current, "WorkerW", $null)
-  $shellView = [Win32Desktop]::FindWindowEx($current, [IntPtr]::Zero, "SHELLDLL_DefView", $null)
-  if ($shellView -ne [IntPtr]::Zero) {
-    $workerw = [Win32Desktop]::FindWindowEx([IntPtr]::Zero, $current, "WorkerW", $null)
+  try {
+    const targetHwnd = readHwnd(window);
+    const workerw = findDesktopWorkerW();
+    if (!workerw) {
+      return false;
+    }
+    const previousParent = SetParent(targetHwnd, workerw);
+    const lastError = GetLastError();
+    if (!previousParent && lastError !== 0) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
   }
-} while ($current -ne [IntPtr]::Zero -and $workerw -eq [IntPtr]::Zero)
-
-if ($workerw -eq [IntPtr]::Zero) {
-  $workerw = $progman
-}
-
-if ($workerw -eq [IntPtr]::Zero) {
-  exit 2
-}
-
-$parent = [Win32Desktop]::SetParent($targetHwnd, $workerw)
-$lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-if ($parent -eq [IntPtr]::Zero -and $lastError -ne 0) {
-  exit 3
-}
-
-exit 0
-`;
-  return await new Promise((resolve) => {
-    const child = spawn(
-      "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, "-targetHwnd", hwnd],
-      {
-        windowsHide: true,
-        stdio: "ignore"
-      }
-    );
-    child.on("error", () => resolve(false));
-    child.on("exit", (code) => resolve(code === 0));
-  });
 };
 const todayKey = (date = /* @__PURE__ */ new Date()) => {
   const year = date.getFullYear();
@@ -135,7 +121,8 @@ const createEmptyDatabase = (date = todayKey()) => ({
     desktopAttachEnabled: true,
     displayMode: "desktop",
     launchAtLogin: false,
-    shortcut: "CommandOrControl+Alt+T"
+    shortcut: "CommandOrControl+Alt+T",
+    showWidgetShortcut: "CommandOrControl+Alt+W"
   }
 });
 class TodoStore {
@@ -214,6 +201,11 @@ class TodoStore {
   }
   setShortcut(shortcut) {
     this.database.settings.shortcut = shortcut;
+    this.save();
+    return this.database.settings;
+  }
+  setShowWidgetShortcut(shortcut) {
+    this.database.settings.showWidgetShortcut = shortcut;
     this.save();
     return this.database.settings;
   }
@@ -516,7 +508,7 @@ const createSettingsWindow = async () => {
   const parentBounds = widgetWindow?.getBounds() ?? defaultWidgetBounds();
   settingsWindow = new BrowserWindow({
     width: 420,
-    height: 420,
+    height: 560,
     x: parentBounds.x + 24,
     y: parentBounds.y + 64,
     frame: false,
@@ -588,7 +580,8 @@ const registerIpc = () => {
     applyLoginSetting(enabled);
     return applySettings(store.setLaunchAtLogin(enabled));
   });
-  ipcMain.handle("settings:setShortcut", (_event, shortcut) => registerShortcut(shortcut));
+  ipcMain.handle("settings:setShortcut", (_event, shortcut) => updateShortcut("quickAdd", shortcut));
+  ipcMain.handle("settings:setShowWidgetShortcut", (_event, shortcut) => updateShortcut("showWidget", shortcut));
   ipcMain.handle("windows:openAddTodo", () => createAddTodoWindow());
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
@@ -597,25 +590,38 @@ const registerIpc = () => {
   ipcMain.handle("windows:showWidget", () => showWidgetWindow());
   ipcMain.handle("app:quit", () => app.quit());
 };
-const registerShortcut = (requestedShortcut) => {
-  globalShortcut.unregisterAll();
-  const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : store.getSettings().shortcut;
+const getShortcutValue = (kind) => kind === "quickAdd" ? store.getSettings().shortcut : store.getSettings().showWidgetShortcut;
+const setShortcutValue = (kind, shortcut) => {
+  if (kind === "quickAdd") {
+    store.setShortcut(shortcut);
+    return;
+  }
+  store.setShowWidgetShortcut(shortcut);
+};
+const runShortcutAction = (kind) => {
+  if (kind === "quickAdd") {
+    void createAddTodoWindow();
+    return;
+  }
+  void showWidgetOnCurrentPage();
+};
+const registerShortcut = (kind, requestedShortcut) => {
+  const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : getShortcutValue(kind);
   const shortcutCandidates = requestedShortcut ? [preferredShortcut] : [preferredShortcut, ...fallbackShortcuts].filter((shortcut, index, shortcuts) => shortcuts.indexOf(shortcut) === index);
   for (const shortcut of shortcutCandidates) {
     let registered = false;
     try {
       registered = globalShortcut.register(shortcut, () => {
-        void createAddTodoWindow();
+        runShortcutAction(kind);
       });
     } catch {
       registered = false;
     }
     if (registered) {
-      store.setShortcut(shortcut);
+      setShortcutValue(kind, shortcut);
       if (shortcut !== preferredShortcut) {
         console.warn(`Preferred shortcut unavailable. Registered fallback shortcut: ${shortcut}`);
       }
-      broadcastSettings();
       return {
         settings: store.getSettings(),
         registered: true,
@@ -626,14 +632,36 @@ const registerShortcut = (requestedShortcut) => {
   }
   console.warn(`Failed to register shortcuts: ${shortcutCandidates.join(", ")}`);
   if (requestedShortcut) {
-    registerShortcut();
+    registerShortcut(kind);
   }
   return {
     settings: store.getSettings(),
     registered: false,
     requestedShortcut: preferredShortcut,
-    activeShortcut: store.getSettings().shortcut
+    activeShortcut: getShortcutValue(kind)
   };
+};
+const registerGlobalShortcuts = () => {
+  globalShortcut.unregisterAll();
+  registerShortcut("quickAdd");
+  registerShortcut("showWidget");
+};
+const updateShortcut = (kind, shortcut) => {
+  const requestedShortcut = normalizeShortcut(shortcut);
+  const otherKind = kind === "quickAdd" ? "showWidget" : "quickAdd";
+  if (requestedShortcut === getShortcutValue(otherKind)) {
+    return {
+      settings: store.getSettings(),
+      registered: false,
+      requestedShortcut,
+      activeShortcut: getShortcutValue(kind)
+    };
+  }
+  globalShortcut.unregisterAll();
+  const result = registerShortcut(kind, requestedShortcut);
+  registerShortcut(otherKind);
+  broadcastSettings();
+  return result;
 };
 const createTray = () => {
   const appIcon = nativeImage.createFromPath(process.execPath);
@@ -669,7 +697,7 @@ const boot = async () => {
   store.refreshDaily();
   registerIpc();
   await createWidgetWindow();
-  registerShortcut();
+  registerGlobalShortcuts();
   createTray();
 };
 const gotLock = app.requestSingleInstanceLock();

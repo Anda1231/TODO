@@ -16,6 +16,8 @@ const api = {
     ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setLaunchAtLogin: (enabled: boolean): Promise<AppSettings> => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   setShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> => ipcRenderer.invoke("settings:setShortcut", shortcut),
+  setShowWidgetShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> =>
+    ipcRenderer.invoke("settings:setShowWidgetShortcut", shortcut),
   openAddTodo: (): Promise<void> => ipcRenderer.invoke("windows:openAddTodo"),
   openCalendar: (): Promise<void> => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),

@@ -11,6 +11,7 @@ const api = {
   setDisplayMode: (displayMode) => ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setLaunchAtLogin: (enabled) => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   setShortcut: (shortcut) => ipcRenderer.invoke("settings:setShortcut", shortcut),
+  setShowWidgetShortcut: (shortcut) => ipcRenderer.invoke("settings:setShowWidgetShortcut", shortcut),
   openAddTodo: () => ipcRenderer.invoke("windows:openAddTodo"),
   openCalendar: () => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: () => ipcRenderer.invoke("windows:openSettings"),

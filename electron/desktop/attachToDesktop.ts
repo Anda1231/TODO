@@ -1,9 +1,55 @@
-import { spawn } from "node:child_process";
+import koffi from "koffi";
 import type { BrowserWindow } from "electron";
 
-const readHwnd = (window: BrowserWindow): string => {
+const user32 = koffi.load("user32.dll");
+const kernel32 = koffi.load("kernel32.dll");
+
+const HWND = koffi.alias("HWND", "void *");
+type Hwnd = object | null;
+const FindWindowW = user32.func("HWND __stdcall FindWindowW(str16 _lpClassName, str16 _lpWindowName)");
+const FindWindowExW = user32.func(
+  "HWND __stdcall FindWindowExW(HWND hWndParent, HWND hWndChildAfter, str16 lpszClass, str16 lpszWindow)"
+);
+const SetParent = user32.func("HWND __stdcall SetParent(HWND hWndChild, HWND hWndNewParent)");
+const GetLastError = kernel32.func("uint32 __stdcall GetLastError()");
+const SendMessageTimeoutW = user32.func(
+  "uintptr_t __stdcall SendMessageTimeoutW(HWND hWnd, uint32 Msg, uintptr_t wParam, intptr_t lParam, uint32 fuFlags, uint32 uTimeout, _Out_ uintptr_t *lpdwResult)"
+);
+
+const WM_SPAWN_WORKER = 0x052c;
+
+const readHwnd = (window: BrowserWindow): Hwnd => {
   const handle = window.getNativeWindowHandle();
-  return process.arch === "x64" ? handle.readBigUInt64LE().toString() : String(handle.readUInt32LE());
+  return koffi.decode(handle, HWND);
+};
+
+const findDesktopWorkerW = (): Hwnd => {
+  const progman = FindWindowW("Progman", null);
+  if (!progman) {
+    return null;
+  }
+
+  const resultPtr = koffi.alloc("uintptr_t", 1);
+  SendMessageTimeoutW(progman, WM_SPAWN_WORKER, 0, 0, 0, 1000, resultPtr);
+  koffi.free(resultPtr);
+
+  let workerw: Hwnd = null;
+  let current: Hwnd = null;
+
+  while (true) {
+    current = FindWindowExW(null, current, "WorkerW", null);
+    if (!current) {
+      break;
+    }
+
+    const shellView = FindWindowExW(current, null, "SHELLDLL_DefView", null);
+    if (shellView) {
+      workerw = FindWindowExW(null, current, "WorkerW", null);
+      break;
+    }
+  }
+
+  return workerw ?? progman;
 };
 
 export const attachWindowToDesktop = async (window: BrowserWindow): Promise<boolean> => {
@@ -11,71 +57,21 @@ export const attachWindowToDesktop = async (window: BrowserWindow): Promise<bool
     return false;
   }
 
-  const hwnd = readHwnd(window);
-  const script = `
-param([IntPtr]$targetHwnd)
+  try {
+    const targetHwnd = readHwnd(window);
+    const workerw = findDesktopWorkerW();
+    if (!workerw) {
+      return false;
+    }
 
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
+    const previousParent = SetParent(targetHwnd, workerw);
+    const lastError = GetLastError();
+    if (!previousParent && lastError !== 0) {
+      return false;
+    }
 
-public static class Win32Desktop {
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr FindWindowEx(IntPtr parentHandle, IntPtr childAfter, string className, string windowTitle);
-
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
-
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
-}
-"@
-
-$progman = [Win32Desktop]::FindWindow("Progman", $null)
-$result = [IntPtr]::Zero
-[Win32Desktop]::SendMessageTimeout($progman, 0x052C, [IntPtr]::Zero, [IntPtr]::Zero, 0, 1000, [ref]$result) | Out-Null
-
-$workerw = [IntPtr]::Zero
-$current = [IntPtr]::Zero
-do {
-  $current = [Win32Desktop]::FindWindowEx([IntPtr]::Zero, $current, "WorkerW", $null)
-  $shellView = [Win32Desktop]::FindWindowEx($current, [IntPtr]::Zero, "SHELLDLL_DefView", $null)
-  if ($shellView -ne [IntPtr]::Zero) {
-    $workerw = [Win32Desktop]::FindWindowEx([IntPtr]::Zero, $current, "WorkerW", $null)
+    return true;
+  } catch {
+    return false;
   }
-} while ($current -ne [IntPtr]::Zero -and $workerw -eq [IntPtr]::Zero)
-
-if ($workerw -eq [IntPtr]::Zero) {
-  $workerw = $progman
-}
-
-if ($workerw -eq [IntPtr]::Zero) {
-  exit 2
-}
-
-$parent = [Win32Desktop]::SetParent($targetHwnd, $workerw)
-$lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-if ($parent -eq [IntPtr]::Zero -and $lastError -ne 0) {
-  exit 3
-}
-
-exit 0
-`;
-
-  return await new Promise((resolve) => {
-    const child = spawn(
-      "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, "-targetHwnd", hwnd],
-      {
-        windowsHide: true,
-        stdio: "ignore"
-      }
-    );
-
-    child.on("error", () => resolve(false));
-    child.on("exit", (code) => resolve(code === 0));
-  });
 };
