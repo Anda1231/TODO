@@ -1,8 +1,8 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
-import { attachWindowToDesktop } from "./desktop/attachToDesktop";
+import { attachWindowToDesktop, detachWindowFromDesktop } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
-import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
+import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WindowBounds } from "../src/types/todo";
 
 let widgetWindow: BrowserWindow | null = null;
 let addTodoWindow: BrowserWindow | null = null;
@@ -11,8 +11,11 @@ let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let store: TodoStore;
 let saveBoundsTimer: NodeJS.Timeout | undefined;
-let showOnCurrentPageOverride = false;
+let pinnedFloat = false;
+let temporaryFloat = false;
 let desktopAttachTimer: NodeJS.Timeout | undefined;
+
+const isFloating = (): boolean => pinnedFloat || temporaryFloat;
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 const fallbackShortcuts = ["CommandOrControl+Alt+T", "CommandOrControl+Alt+N", "CommandOrControl+Shift+Space"];
@@ -67,6 +70,12 @@ const broadcastSettings = (): void => {
   }
 };
 
+const broadcastFloatState = (): void => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("widget:float-state-changed", pinnedFloat);
+  }
+};
+
 /** 显示挂件窗口：置顶模式聚焦显示，桌面模式仅 showInactive 避免抢焦点。 */
 const showWidgetWindow = (): void => {
   if (!widgetWindow) {
@@ -74,7 +83,7 @@ const showWidgetWindow = (): void => {
     return;
   }
 
-  if (store.getSettings().displayMode === "float" || showOnCurrentPageOverride) {
+  if (isFloating()) {
     widgetWindow.setAlwaysOnTop(true, "floating");
     widgetWindow.setSkipTaskbar(false);
     widgetWindow.moveTop();
@@ -86,27 +95,37 @@ const showWidgetWindow = (): void => {
   widgetWindow.showInactive();
 };
 
-/** 托盘点击或快捷键触发：临时把挂件从桌面层拉到当前页面置顶。 */
+/** 托盘点击或快捷键触发：未开启置顶时临时浮到当前页面，失焦后回到桌面。 */
 const showWidgetOnCurrentPage = async (): Promise<void> => {
-  const needsRecreate = store.getSettings().displayMode !== "float" && !showOnCurrentPageOverride;
-  showOnCurrentPageOverride = true;
-
-  if (!widgetWindow || needsRecreate) {
-    await recreateWidgetWindow();
+  if (pinnedFloat) {
+    showWidgetWindow();
     return;
   }
 
-  showWidgetWindow();
+  temporaryFloat = true;
+
+  if (!widgetWindow) {
+    await createWidgetWindow();
+    return;
+  }
+
+  await applyWidgetDisplayMode();
 };
 
-/** 挂件失焦后，若处于「临时置顶」状态则重建窗口并贴回桌面。 */
+/** 从悬浮状态贴回桌面（仅用于关闭置顶或临时显示结束）。 */
 const returnWidgetToDesktop = async (): Promise<void> => {
-  if (store.getSettings().displayMode !== "desktop" || !showOnCurrentPageOverride) {
+  if (pinnedFloat || !isFloating()) {
     return;
   }
 
-  showOnCurrentPageOverride = false;
-  await recreateWidgetWindow();
+  temporaryFloat = false;
+
+  if (!widgetWindow) {
+    await createWidgetWindow();
+    return;
+  }
+
+  await applyWidgetDisplayMode();
 };
 
 const applyLoginSetting = (enabled: boolean): void => {
@@ -116,24 +135,15 @@ const applyLoginSetting = (enabled: boolean): void => {
   });
 };
 
-/** 销毁并重建挂件，用于切换显示模式或桌面/置顶状态变化。 */
-const recreateWidgetWindow = async (): Promise<void> => {
-  const existingWindow = widgetWindow;
-  widgetWindow = null;
-  clearTimeout(desktopAttachTimer);
-  if (existingWindow && !existingWindow.isDestroyed()) {
-    store.updateWidgetBounds(existingWindow.getBounds());
-    existingWindow.destroy();
-  }
-  await createWidgetWindow();
-};
-
-/** 按设置应用挂件显示模式：float 始终置顶，desktop 调用 Win32 贴到桌面 WorkerW。 */
+/** 应用挂件显示：置顶悬浮时浮在当前页面上方，否则贴到桌面 WorkerW。 */
 const applyWidgetDisplayMode = async (): Promise<void> => {
   if (!widgetWindow) return;
 
-  const settings = store.getSettings();
-  if (settings.displayMode === "float" || showOnCurrentPageOverride) {
+  const bounds = widgetWindow.getBounds();
+
+  if (isFloating()) {
+    detachWindowFromDesktop(widgetWindow);
+    widgetWindow.setBounds(bounds);
     widgetWindow.setSkipTaskbar(false);
     widgetWindow.setAlwaysOnTop(true, "floating");
     widgetWindow.show();
@@ -143,10 +153,13 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
     return;
   }
 
-  widgetWindow.setSkipTaskbar(true);
   widgetWindow.setAlwaysOnTop(false);
-  widgetWindow.showInactive();
+  widgetWindow.setSkipTaskbar(true);
+  detachWindowFromDesktop(widgetWindow);
+  widgetWindow.setBounds(bounds);
+  widgetWindow.show();
   const attached = await attachWindowToDesktop(widgetWindow);
+  widgetWindow.showInactive();
   widgetWindow.webContents.send("desktop-attach:result", attached);
   scheduleDesktopAttachRetries();
 };
@@ -154,18 +167,19 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
 /** 桌面附着可能因 Explorer 未就绪失败，延迟重试数次。 */
 const scheduleDesktopAttachRetries = (): void => {
   clearTimeout(desktopAttachTimer);
-  if (!widgetWindow || store.getSettings().displayMode !== "desktop" || showOnCurrentPageOverride) {
+  if (!widgetWindow || isFloating()) {
     return;
   }
 
   const delays = [150, 600, 1500];
   const retry = async (index: number): Promise<void> => {
-    if (!widgetWindow || store.getSettings().displayMode !== "desktop" || showOnCurrentPageOverride) {
+    if (!widgetWindow || isFloating()) {
       return;
     }
 
-    widgetWindow.showInactive();
+    widgetWindow.show();
     const attached = await attachWindowToDesktop(widgetWindow);
+    widgetWindow.showInactive();
     widgetWindow.webContents.send("desktop-attach:result", attached);
 
     if (index + 1 < delays.length) {
@@ -201,8 +215,7 @@ const persistWidgetBounds = (): void => {
 };
 
 const createWidgetWindow = async (): Promise<void> => {
-  const settings = store.getSettings();
-  const bounds = settings.widgetBounds ?? defaultWidgetBounds();
+  const bounds = store.getSettings().widgetBounds ?? defaultWidgetBounds();
 
   widgetWindow = new BrowserWindow({
     ...bounds,
@@ -213,7 +226,7 @@ const createWidgetWindow = async (): Promise<void> => {
     backgroundColor: "#00000000",
     hasShadow: false,
     resizable: true,
-    skipTaskbar: settings.displayMode === "desktop" && !showOnCurrentPageOverride,
+    skipTaskbar: !isFloating(),
     show: false,
     title: "桌面代办",
     webPreferences: {
@@ -227,7 +240,7 @@ const createWidgetWindow = async (): Promise<void> => {
   widgetWindow.on("move", persistWidgetBounds);
   widgetWindow.on("resize", persistWidgetBounds);
   widgetWindow.on("blur", () => {
-    if (store.getSettings().displayMode !== "desktop" || !showOnCurrentPageOverride) {
+    if (pinnedFloat || !temporaryFloat) {
       return;
     }
 
@@ -386,12 +399,6 @@ const registerIpc = (): void => {
   });
   ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => store.getCalendar(year, month));
   ipcMain.handle("settings:get", () => store.getSettings());
-  ipcMain.handle("settings:setDisplayMode", async (_event, displayMode: WidgetDisplayMode) => {
-    showOnCurrentPageOverride = false;
-    const settings = store.setDisplayMode(displayMode);
-    await recreateWidgetWindow();
-    return applySettings(settings);
-  });
   ipcMain.handle("settings:setLaunchAtLogin", (_event, enabled: boolean) => {
     applyLoginSetting(enabled);
     return applySettings(store.setLaunchAtLogin(enabled));
@@ -402,6 +409,23 @@ const registerIpc = (): void => {
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
   ipcMain.handle("windows:closeCurrent", (event) => BrowserWindow.fromWebContents(event.sender)?.hide());
+  ipcMain.handle("widget:getFloatOnPage", () => pinnedFloat);
+  ipcMain.handle("widget:toggleFloatOnPage", async () => {
+    pinnedFloat = !pinnedFloat;
+    temporaryFloat = false;
+    broadcastFloatState();
+
+    if (!widgetWindow) {
+      await createWidgetWindow();
+    } else {
+      await applyWidgetDisplayMode();
+    }
+
+    return pinnedFloat;
+  });
+  ipcMain.handle("widget:minimize", () => {
+    widgetWindow?.hide();
+  });
   ipcMain.handle("app:quit", () => app.quit());
 }
 

@@ -14,8 +14,6 @@ const api = {
   getCalendar: (year: number, month: number): Promise<TodoCalendarDay[]> =>
     ipcRenderer.invoke("todos:getCalendar", year, month),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke("settings:get"),
-  setDisplayMode: (displayMode: AppSettings["displayMode"]): Promise<AppSettings> =>
-    ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setLaunchAtLogin: (enabled: boolean): Promise<AppSettings> => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   setShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> => ipcRenderer.invoke("settings:setShortcut", shortcut),
   setShowWidgetShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> =>
@@ -24,6 +22,9 @@ const api = {
   openCalendar: (): Promise<void> => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   closeCurrentWindow: (): Promise<void> => ipcRenderer.invoke("windows:closeCurrent"),
+  getFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:getFloatOnPage"),
+  toggleFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:toggleFloatOnPage"),
+  minimizeWidget: (): Promise<void> => ipcRenderer.invoke("widget:minimize"),
   quitApp: (): Promise<void> => ipcRenderer.invoke("app:quit"),
   onTodosChanged: (callback: (snapshot: TodoSnapshot) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: TodoSnapshot): void => callback(snapshot);
@@ -39,6 +40,11 @@ const api = {
     const listener = (_event: Electron.IpcRendererEvent, settings: AppSettings): void => callback(settings);
     ipcRenderer.on("settings:changed", listener);
     return () => ipcRenderer.removeListener("settings:changed", listener);
+  },
+  onFloatStateChanged: (callback: (floating: boolean) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, floating: boolean): void => callback(floating);
+    ipcRenderer.on("widget:float-state-changed", listener);
+    return () => ipcRenderer.removeListener("widget:float-state-changed", listener);
   },
   onQuickAddFocus: (callback: () => void): (() => void) => {
     const listener = (): void => callback();

@@ -15,11 +15,13 @@ const FindWindowExW = user32.func(
   "HWND __stdcall FindWindowExW(HWND hWndParent, HWND hWndChildAfter, str16 lpszClass, str16 lpszWindow)"
 );
 const SetParent = user32.func("HWND __stdcall SetParent(HWND hWndChild, HWND hWndNewParent)");
+const ShowWindow = user32.func("int __stdcall ShowWindow(HWND hWnd, int nCmdShow)");
 const GetLastError = kernel32.func("uint32 __stdcall GetLastError()");
 const SendMessageTimeoutW = user32.func(
   "uintptr_t __stdcall SendMessageTimeoutW(HWND hWnd, uint32 Msg, uintptr_t wParam, intptr_t lParam, uint32 fuFlags, uint32 uTimeout, _Out_ uintptr_t *lpdwResult)"
 );
 const WM_SPAWN_WORKER = 1324;
+const SW_SHOWNA = 8;
 const readHwnd = (window) => {
   const handle = window.getNativeWindowHandle();
   return koffi.decode(handle, HWND);
@@ -47,12 +49,25 @@ const findDesktopWorkerW = () => {
   }
   return workerw ?? progman;
 };
+const detachWindowFromDesktop = (window) => {
+  if (process.platform !== "win32") {
+    return false;
+  }
+  try {
+    const targetHwnd = readHwnd(window);
+    SetParent(targetHwnd, null);
+    return true;
+  } catch {
+    return false;
+  }
+};
 const attachWindowToDesktop = async (window) => {
   if (process.platform !== "win32") {
     return false;
   }
   try {
     const targetHwnd = readHwnd(window);
+    detachWindowFromDesktop(window);
     const workerw = findDesktopWorkerW();
     if (!workerw) {
       return false;
@@ -62,6 +77,7 @@ const attachWindowToDesktop = async (window) => {
     if (!previousParent && lastError !== 0) {
       return false;
     }
+    ShowWindow(targetHwnd, SW_SHOWNA);
     return true;
   } catch {
     return false;
@@ -281,8 +297,10 @@ let settingsWindow = null;
 let tray = null;
 let store;
 let saveBoundsTimer;
-let showOnCurrentPageOverride = false;
+let pinnedFloat = false;
+let temporaryFloat = false;
 let desktopAttachTimer;
+const isFloating = () => pinnedFloat || temporaryFloat;
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 const fallbackShortcuts = ["CommandOrControl+Alt+T", "CommandOrControl+Alt+N", "CommandOrControl+Shift+Space"];
 const fallbackTrayIconDataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
@@ -322,12 +340,17 @@ const broadcastSettings = () => {
     window.webContents.send("settings:changed", settings);
   }
 };
+const broadcastFloatState = () => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("widget:float-state-changed", pinnedFloat);
+  }
+};
 const showWidgetWindow = () => {
   if (!widgetWindow) {
     void createWidgetWindow();
     return;
   }
-  if (store.getSettings().displayMode === "float" || showOnCurrentPageOverride) {
+  if (isFloating()) {
     widgetWindow.setAlwaysOnTop(true, "floating");
     widgetWindow.setSkipTaskbar(false);
     widgetWindow.moveTop();
@@ -338,20 +361,27 @@ const showWidgetWindow = () => {
   widgetWindow.showInactive();
 };
 const showWidgetOnCurrentPage = async () => {
-  const needsRecreate = store.getSettings().displayMode !== "float" && !showOnCurrentPageOverride;
-  showOnCurrentPageOverride = true;
-  if (!widgetWindow || needsRecreate) {
-    await recreateWidgetWindow();
+  if (pinnedFloat) {
+    showWidgetWindow();
     return;
   }
-  showWidgetWindow();
+  temporaryFloat = true;
+  if (!widgetWindow) {
+    await createWidgetWindow();
+    return;
+  }
+  await applyWidgetDisplayMode();
 };
 const returnWidgetToDesktop = async () => {
-  if (store.getSettings().displayMode !== "desktop" || !showOnCurrentPageOverride) {
+  if (pinnedFloat || !isFloating()) {
     return;
   }
-  showOnCurrentPageOverride = false;
-  await recreateWidgetWindow();
+  temporaryFloat = false;
+  if (!widgetWindow) {
+    await createWidgetWindow();
+    return;
+  }
+  await applyWidgetDisplayMode();
 };
 const applyLoginSetting = (enabled) => {
   app.setLoginItemSettings({
@@ -359,20 +389,12 @@ const applyLoginSetting = (enabled) => {
     path: process.execPath
   });
 };
-const recreateWidgetWindow = async () => {
-  const existingWindow = widgetWindow;
-  widgetWindow = null;
-  clearTimeout(desktopAttachTimer);
-  if (existingWindow && !existingWindow.isDestroyed()) {
-    store.updateWidgetBounds(existingWindow.getBounds());
-    existingWindow.destroy();
-  }
-  await createWidgetWindow();
-};
 const applyWidgetDisplayMode = async () => {
   if (!widgetWindow) return;
-  const settings = store.getSettings();
-  if (settings.displayMode === "float" || showOnCurrentPageOverride) {
+  const bounds = widgetWindow.getBounds();
+  if (isFloating()) {
+    detachWindowFromDesktop(widgetWindow);
+    widgetWindow.setBounds(bounds);
     widgetWindow.setSkipTaskbar(false);
     widgetWindow.setAlwaysOnTop(true, "floating");
     widgetWindow.show();
@@ -381,25 +403,29 @@ const applyWidgetDisplayMode = async () => {
     widgetWindow.webContents.send("desktop-attach:result", true);
     return;
   }
-  widgetWindow.setSkipTaskbar(true);
   widgetWindow.setAlwaysOnTop(false);
-  widgetWindow.showInactive();
+  widgetWindow.setSkipTaskbar(true);
+  detachWindowFromDesktop(widgetWindow);
+  widgetWindow.setBounds(bounds);
+  widgetWindow.show();
   const attached = await attachWindowToDesktop(widgetWindow);
+  widgetWindow.showInactive();
   widgetWindow.webContents.send("desktop-attach:result", attached);
   scheduleDesktopAttachRetries();
 };
 const scheduleDesktopAttachRetries = () => {
   clearTimeout(desktopAttachTimer);
-  if (!widgetWindow || store.getSettings().displayMode !== "desktop" || showOnCurrentPageOverride) {
+  if (!widgetWindow || isFloating()) {
     return;
   }
   const delays = [150, 600, 1500];
   const retry = async (index) => {
-    if (!widgetWindow || store.getSettings().displayMode !== "desktop" || showOnCurrentPageOverride) {
+    if (!widgetWindow || isFloating()) {
       return;
     }
-    widgetWindow.showInactive();
+    widgetWindow.show();
     const attached = await attachWindowToDesktop(widgetWindow);
+    widgetWindow.showInactive();
     widgetWindow.webContents.send("desktop-attach:result", attached);
     if (index + 1 < delays.length) {
       desktopAttachTimer = setTimeout(() => {
@@ -429,8 +455,7 @@ const persistWidgetBounds = () => {
   }, 300);
 };
 const createWidgetWindow = async () => {
-  const settings = store.getSettings();
-  const bounds = settings.widgetBounds ?? defaultWidgetBounds();
+  const bounds = store.getSettings().widgetBounds ?? defaultWidgetBounds();
   widgetWindow = new BrowserWindow({
     ...bounds,
     minWidth: 280,
@@ -440,7 +465,7 @@ const createWidgetWindow = async () => {
     backgroundColor: "#00000000",
     hasShadow: false,
     resizable: true,
-    skipTaskbar: settings.displayMode === "desktop" && !showOnCurrentPageOverride,
+    skipTaskbar: !isFloating(),
     show: false,
     title: "桌面代办",
     webPreferences: {
@@ -453,7 +478,7 @@ const createWidgetWindow = async () => {
   widgetWindow.on("move", persistWidgetBounds);
   widgetWindow.on("resize", persistWidgetBounds);
   widgetWindow.on("blur", () => {
-    if (store.getSettings().displayMode !== "desktop" || !showOnCurrentPageOverride) {
+    if (pinnedFloat || !temporaryFloat) {
       return;
     }
     setTimeout(() => {
@@ -595,12 +620,6 @@ const registerIpc = () => {
   });
   ipcMain.handle("todos:getCalendar", (_event, year, month) => store.getCalendar(year, month));
   ipcMain.handle("settings:get", () => store.getSettings());
-  ipcMain.handle("settings:setDisplayMode", async (_event, displayMode) => {
-    showOnCurrentPageOverride = false;
-    const settings = store.setDisplayMode(displayMode);
-    await recreateWidgetWindow();
-    return applySettings(settings);
-  });
   ipcMain.handle("settings:setLaunchAtLogin", (_event, enabled) => {
     applyLoginSetting(enabled);
     return applySettings(store.setLaunchAtLogin(enabled));
@@ -611,6 +630,21 @@ const registerIpc = () => {
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
   ipcMain.handle("windows:closeCurrent", (event) => BrowserWindow.fromWebContents(event.sender)?.hide());
+  ipcMain.handle("widget:getFloatOnPage", () => pinnedFloat);
+  ipcMain.handle("widget:toggleFloatOnPage", async () => {
+    pinnedFloat = !pinnedFloat;
+    temporaryFloat = false;
+    broadcastFloatState();
+    if (!widgetWindow) {
+      await createWidgetWindow();
+    } else {
+      await applyWidgetDisplayMode();
+    }
+    return pinnedFloat;
+  });
+  ipcMain.handle("widget:minimize", () => {
+    widgetWindow?.hide();
+  });
   ipcMain.handle("app:quit", () => app.quit());
 };
 const getShortcutValue = (kind) => kind === "quickAdd" ? store.getSettings().shortcut : store.getSettings().showWidgetShortcut;

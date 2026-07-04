@@ -11,12 +11,14 @@ const FindWindowExW = user32.func(
   "HWND __stdcall FindWindowExW(HWND hWndParent, HWND hWndChildAfter, str16 lpszClass, str16 lpszWindow)"
 );
 const SetParent = user32.func("HWND __stdcall SetParent(HWND hWndChild, HWND hWndNewParent)");
+const ShowWindow = user32.func("int __stdcall ShowWindow(HWND hWnd, int nCmdShow)");
 const GetLastError = kernel32.func("uint32 __stdcall GetLastError()");
 const SendMessageTimeoutW = user32.func(
   "uintptr_t __stdcall SendMessageTimeoutW(HWND hWnd, uint32 Msg, uintptr_t wParam, intptr_t lParam, uint32 fuFlags, uint32 uTimeout, _Out_ uintptr_t *lpdwResult)"
 );
 
 const WM_SPAWN_WORKER = 0x052c;
+const SW_SHOWNA = 8;
 
 const readHwnd = (window: BrowserWindow): Hwnd => {
   const handle = window.getNativeWindowHandle();
@@ -56,6 +58,21 @@ const findDesktopWorkerW = (): Hwnd => {
   return workerw ?? progman;
 };
 
+/** 将窗口从桌面 WorkerW 恢复为普通顶层窗口。 */
+export const detachWindowFromDesktop = (window: BrowserWindow): boolean => {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  try {
+    const targetHwnd = readHwnd(window);
+    SetParent(targetHwnd, null);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** 将 Electron 窗口设为桌面 WorkerW 的子窗口，使其显示在壁纸之上、图标之下。 */
 export const attachWindowToDesktop = async (window: BrowserWindow): Promise<boolean> => {
   if (process.platform !== "win32") {
@@ -64,6 +81,8 @@ export const attachWindowToDesktop = async (window: BrowserWindow): Promise<bool
 
   try {
     const targetHwnd = readHwnd(window);
+    detachWindowFromDesktop(window);
+
     const workerw = findDesktopWorkerW();
     if (!workerw) {
       return false;
@@ -75,6 +94,7 @@ export const attachWindowToDesktop = async (window: BrowserWindow): Promise<bool
       return false;
     }
 
+    ShowWindow(targetHwnd, SW_SHOWNA);
     return true;
   } catch {
     return false;

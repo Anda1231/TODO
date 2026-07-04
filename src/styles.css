@@ -138,8 +138,14 @@ h2 {
   stroke-width: 1.8;
 }
 
-.header-actions {
+.header-actions,
+.footer-actions {
   gap: 6px;
+}
+
+.footer-actions {
+  display: flex;
+  align-items: center;
 }
 
 .danger-button {

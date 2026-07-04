@@ -23,7 +23,7 @@ const formatShortcut = (shortcut?: string): string =>
     .replace("CommandOrControl", "Ctrl")
     .replace(/\+/g, " + ");
 
-type IconName = "calendar" | "quit" | "settings";
+type IconName = "calendar" | "minimize" | "pin" | "quit" | "settings";
 
 const Icon = ({ name }: { name: IconName }): React.ReactElement => {
   const paths: Record<IconName, React.ReactNode> = {
@@ -31,6 +31,16 @@ const Icon = ({ name }: { name: IconName }): React.ReactElement => {
       <>
         <rect x="5" y="6" width="14" height="13" rx="2" />
         <path d="M8 4v4M16 4v4M5 10h14" />
+      </>
+    ),
+    minimize: (
+      <path d="M6 12h12" />
+    ),
+    pin: (
+      <>
+        <path d="M12 17v5" />
+        <path d="M8 3h8l-1 7h-6L8 3z" />
+        <path d="M9 10v3a3 3 0 0 0 6 0v-3" />
       </>
     ),
     quit: (
@@ -61,18 +71,22 @@ export default function App(): React.ReactElement {
   const skipBlurSaveRef = useRef(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [desktopAttached, setDesktopAttached] = useState<boolean | null>(null);
+  const [isFloatingOnPage, setIsFloatingOnPage] = useState(false);
 
   useEffect(() => {
     void window.todoApi.getSnapshot().then(setSnapshot);
     void window.todoApi.getSettings().then(setSettings);
+    void window.todoApi.getFloatOnPage().then(setIsFloatingOnPage);
 
     const offTodos = window.todoApi.onTodosChanged(setSnapshot);
     const offDesktop = window.todoApi.onDesktopAttachResult(setDesktopAttached);
     const offSettings = window.todoApi.onSettingsChanged(setSettings);
+    const offFloat = window.todoApi.onFloatStateChanged(setIsFloatingOnPage);
     return () => {
       offTodos();
       offDesktop();
       offSettings();
+      offFloat();
     };
   }, []);
 
@@ -132,17 +146,26 @@ export default function App(): React.ReactElement {
             <h1>桌面代办</h1>
           </div>
           <div className="header-actions no-drag">
-            <button className="icon-button" type="button" title="完成日历" aria-label="完成日历" onClick={() => window.todoApi.openCalendar()}>
-              <Icon name="calendar" />
+            <button
+              className={`icon-button${isFloatingOnPage ? " active" : ""}`}
+              type="button"
+              title={isFloatingOnPage ? "取消置顶，回到桌面" : "始终悬浮在任何页面上"}
+              aria-label={isFloatingOnPage ? "取消置顶，回到桌面" : "始终悬浮在任何页面上"}
+              aria-pressed={isFloatingOnPage}
+              onClick={() => {
+                void window.todoApi.toggleFloatOnPage().then(setIsFloatingOnPage);
+              }}
+            >
+              <Icon name="pin" />
             </button>
             <button
               className="icon-button"
               type="button"
-              title="设置"
-              aria-label="设置"
-              onClick={() => window.todoApi.openSettings()}
+              title="最小化"
+              aria-label="最小化"
+              onClick={() => window.todoApi.minimizeWidget()}
             >
-              <Icon name="settings" />
+              <Icon name="minimize" />
             </button>
             <button className="icon-button danger-button" type="button" title="退出应用" aria-label="退出应用" onClick={() => window.todoApi.quitApp()}>
               <Icon name="quit" />
@@ -242,9 +265,23 @@ export default function App(): React.ReactElement {
         </section>
 
         <footer className="widget-footer no-drag">
+          <div className="footer-actions">
+            <button className="icon-button" type="button" title="完成日历" aria-label="完成日历" onClick={() => window.todoApi.openCalendar()}>
+              <Icon name="calendar" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="设置"
+              aria-label="设置"
+              onClick={() => window.todoApi.openSettings()}
+            >
+              <Icon name="settings" />
+            </button>
+          </div>
           <span>
             {desktopAttached === false
-              ? "桌面固定失败，可切到当前页面显示"
+              ? "桌面固定失败，可点击右上角置顶按钮显示"
               : `${formatShortcut(settings?.shortcut)} 呼出添加，托盘图标可显示组件`}
           </span>
         </footer>

@@ -9,7 +9,6 @@ const api = {
   setTodoRating: (id, rating) => ipcRenderer.invoke("todos:setRating", id, rating),
   getCalendar: (year, month) => ipcRenderer.invoke("todos:getCalendar", year, month),
   getSettings: () => ipcRenderer.invoke("settings:get"),
-  setDisplayMode: (displayMode) => ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setLaunchAtLogin: (enabled) => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   setShortcut: (shortcut) => ipcRenderer.invoke("settings:setShortcut", shortcut),
   setShowWidgetShortcut: (shortcut) => ipcRenderer.invoke("settings:setShowWidgetShortcut", shortcut),
@@ -17,6 +16,9 @@ const api = {
   openCalendar: () => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: () => ipcRenderer.invoke("windows:openSettings"),
   closeCurrentWindow: () => ipcRenderer.invoke("windows:closeCurrent"),
+  getFloatOnPage: () => ipcRenderer.invoke("widget:getFloatOnPage"),
+  toggleFloatOnPage: () => ipcRenderer.invoke("widget:toggleFloatOnPage"),
+  minimizeWidget: () => ipcRenderer.invoke("widget:minimize"),
   quitApp: () => ipcRenderer.invoke("app:quit"),
   onTodosChanged: (callback) => {
     const listener = (_event, snapshot) => callback(snapshot);
@@ -32,6 +34,11 @@ const api = {
     const listener = (_event, settings) => callback(settings);
     ipcRenderer.on("settings:changed", listener);
     return () => ipcRenderer.removeListener("settings:changed", listener);
+  },
+  onFloatStateChanged: (callback) => {
+    const listener = (_event, floating) => callback(floating);
+    ipcRenderer.on("widget:float-state-changed", listener);
+    return () => ipcRenderer.removeListener("widget:float-state-changed", listener);
   },
   onQuickAddFocus: (callback) => {
     const listener = () => callback();
