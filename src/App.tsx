@@ -5,6 +5,7 @@
  * 置顶切换、完成区预览、打开日历/设置/快捷添加窗口。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
+import { Calendar, Minus, Pin, Settings, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import TodoRating from "./TodoRating";
@@ -35,43 +36,18 @@ const formatShortcut = (shortcut?: string): string =>
 
 type IconName = "calendar" | "minimize" | "pin" | "quit" | "settings";
 
-/** 标题栏与 footer 使用的 SVG 图标集合 */
-const Icon = ({ name }: { name: IconName }): React.ReactElement => {
-  const paths: Record<IconName, React.ReactNode> = {
-    calendar: (
-      <>
-        <rect x="5" y="6" width="14" height="13" rx="2" />
-        <path d="M8 4v4M16 4v4M5 10h14" />
-      </>
-    ),
-    minimize: (
-      <path d="M6 12h12" />
-    ),
-    pin: (
-      <>
-        <path d="M12 17v5" />
-        <path d="M8 3h8l-1 7h-6L8 3z" />
-        <path d="M9 10v3a3 3 0 0 0 6 0v-3" />
-      </>
-    ),
-    quit: (
-      <>
-        <path d="M7 7l10 10M17 7 7 17" />
-      </>
-    ),
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 0 0-2 .2 1.7 1.7 0 0 0-.8 1.7V22h-3.6v-.1a1.7 1.7 0 0 0-1.2-1.6 1.7 1.7 0 0 0-1.8.2l-.2.1-1.8-3.1.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.4-1.1H5v-3.6h.2a1.7 1.7 0 0 0 1.4-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-3.1.2.1a1.7 1.7 0 0 0 2-.2A1.7 1.7 0 0 0 11 2.8V2h3.6v.8a1.7 1.7 0 0 0 1.2 1.6 1.7 1.7 0 0 0 1.8-.2l.2-.1 1.8 3.1-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.4 1.1h.2v3.6h-.2a1.7 1.7 0 0 0-1.2 1.1Z" />
-      </>
-    )
-  };
+const iconComponents: Record<IconName, typeof Calendar> = {
+  calendar: Calendar,
+  minimize: Minus,
+  pin: Pin,
+  quit: X,
+  settings: Settings
+};
 
-  return (
-    <svg aria-hidden="true" className="button-icon" viewBox="0 0 24 24">
-      {paths[name]}
-    </svg>
-  );
+/** 标题栏与 footer 使用的图标 */
+const Icon = ({ name }: { name: IconName }): React.ReactElement => {
+  const LucideIcon = iconComponents[name];
+  return <LucideIcon aria-hidden className="button-icon" strokeWidth={2} />;
 };
 
 export default function App(): React.ReactElement {
@@ -258,9 +234,7 @@ export default function App(): React.ReactElement {
                     aria-label={`删除 ${todo.title}`}
                     onClick={() => window.todoApi.deleteTodo(todo.id)}
                   >
-                    <svg aria-hidden="true" className="button-icon" viewBox="0 0 24 24">
-                      <path d="M7 7l10 10M17 7 7 17" />
-                    </svg>
+                    <Trash2 aria-hidden className="button-icon" strokeWidth={2} />
                   </button>
                 ) : null}
               </article>

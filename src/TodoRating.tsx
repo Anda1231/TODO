@@ -4,6 +4,7 @@
  * 点击触发按钮展开下拉菜单选择评分；点击组件外部自动关闭。
  * 评分影响 sortTodos 中的列表排序（高分优先）。
  */
+import { Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { TODO_RATING_MAX, TODO_RATING_MIN } from "./types/todo";
@@ -14,9 +15,7 @@ type TodoRatingProps = {
 };
 
 const StarIcon = (): React.ReactElement => (
-  <svg aria-hidden="true" className="todo-rating-star" viewBox="0 0 24 24">
-    <path d="M12 3.2 14.7 9l6.1.5-4.6 3.9 1.4 6-5.6-3.4L6.4 19.4l1.4-6L3.2 9.5 9.3 9 12 3.2Z" />
-  </svg>
+  <Star aria-hidden className="todo-rating-star" fill="currentColor" strokeWidth={0} />
 );
 
 export default function TodoRating({ rating, onChange }: TodoRatingProps): React.ReactElement {
