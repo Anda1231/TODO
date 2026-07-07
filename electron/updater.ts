@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
+
+const { autoUpdater } = electronUpdater;
 
 let currentStatus: UpdateStatus = { state: "idle" };
 
