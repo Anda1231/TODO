@@ -1,6 +1,6 @@
 {
   "name": "desktop-todo-widget",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A Windows desktop todo widget with global quick add and daily rollover.",
   "private": true,
   "type": "module",
@@ -15,11 +15,9 @@
     "diagnose:desktop": "node scripts/diagnose-desktop-attach.cjs"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9",
-    "koffi": "^3.1.0",
-    "lucide-react": "^1.23.0",
-    "react": "latest",
-    "react-dom": "latest"
+    
+
+    
   },
   "devDependencies": {
     "@types/node": "latest",
@@ -67,7 +65,8 @@
       {
         "provider": "github",
         "owner": "Anda1231",
-        "repo": "TODO"
+        "repo": "TODO",
+        "releaseType": "release"
       }
     ]
   }
