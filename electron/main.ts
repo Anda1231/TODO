@@ -9,7 +9,7 @@
  *
  * 启动顺序：configureUserDataPath → requestSingleInstanceLock → app.whenReady → boot
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, powerMonitor, screen, Tray } from "electron";
 import { join } from "node:path";
 import { configureUserDataPath, getAppIconPath } from "./appPaths";
 import { attachWindowToDesktop, detachWindowFromDesktop } from "./desktop/attachToDesktop";
@@ -37,6 +37,10 @@ let pinnedFloat = false;
 let temporaryFloat = false;
 /** 桌面附着失败时的延迟重试定时器 */
 let desktopAttachTimer: NodeJS.Timeout | undefined;
+/** 启动/恢复后的多阶段稳定化定时器 */
+let desktopStabilizeTimers: NodeJS.Timeout[] = [];
+/** 运行中的低频桌面附着自检 */
+let desktopMaintenanceTimer: NodeJS.Timeout | undefined;
 /** 点击进入拖动准备后，如果没有真的移动，自动恢复桌面附着 */
 let dragAttachFallbackTimer: NodeJS.Timeout | undefined;
 /** 拖动前已从桌面脱离，待 moved 后重新附着 */
@@ -208,6 +212,35 @@ const activateDesktopWidgetForInteraction = (): void => {
   widgetWindow.moveTop();
 };
 
+const attachDesktopWidget = async (options: { activate: boolean }): Promise<boolean> => {
+  if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
+    return false;
+  }
+
+  widgetWindow.setAlwaysOnTop(false);
+  widgetWindow.setMinimizable(false);
+  widgetWindow.setSkipTaskbar(true);
+  detachWindowFromDesktop(widgetWindow);
+  widgetWindow.setBounds(widgetWindow.getBounds());
+  widgetWindow.show();
+
+  const attached = await attachWindowToDesktop(widgetWindow);
+  widgetWindow.webContents.send("desktop-attach:result", attached);
+
+  if (attached && options.activate) {
+    activateDesktopWidgetForInteraction();
+    setTimeout(activateDesktopWidgetForInteraction, 80);
+  }
+
+  if (!attached) {
+    detachWindowFromDesktop(widgetWindow);
+    widgetWindow.show();
+    widgetWindow.moveTop();
+  }
+
+  return attached;
+};
+
 /** 同步 Windows 登录项设置，与 todos.json 中的 launchAtLogin 保持一致 */
 const applyLoginSetting = (enabled: boolean): void => {
   app.setLoginItemSettings({
@@ -224,6 +257,7 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
 
   if (isFloating()) {
     clearTimeout(dragAttachFallbackTimer);
+    clearDesktopStabilization();
     widgetDragDetached = false;
     detachWindowFromDesktop(widgetWindow);
     widgetWindow.setBounds(bounds);
@@ -239,6 +273,7 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
 
   if (!isDesktopDisplayMode()) {
     clearTimeout(dragAttachFallbackTimer);
+    clearDesktopStabilization();
     widgetDragDetached = false;
     detachWindowFromDesktop(widgetWindow);
     widgetWindow.setBounds(bounds);
@@ -250,26 +285,11 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
     return;
   }
 
-  widgetWindow.setAlwaysOnTop(false);
-  widgetWindow.setMinimizable(false);
-  widgetWindow.setSkipTaskbar(true);
   clearTimeout(dragAttachFallbackTimer);
   widgetDragDetached = false;
-  detachWindowFromDesktop(widgetWindow);
-  widgetWindow.setBounds(bounds);
-  widgetWindow.show();
-  const attached = await attachWindowToDesktop(widgetWindow);
-  widgetWindow.webContents.send("desktop-attach:result", attached);
+  const attached = await attachDesktopWidget({ activate: true });
+  if (!attached) return;
 
-  if (!attached) {
-    detachWindowFromDesktop(widgetWindow);
-    widgetWindow.show();
-    widgetWindow.moveTop();
-    return;
-  }
-
-  activateDesktopWidgetForInteraction();
-  setTimeout(activateDesktopWidgetForInteraction, 80);
   scheduleDesktopAttachRetries();
 };
 
@@ -295,12 +315,9 @@ const scheduleDesktopAttachRetries = (): void => {
       return;
     }
 
-    widgetWindow.show();
-    const attached = await attachWindowToDesktop(widgetWindow);
-    widgetWindow.webContents.send("desktop-attach:result", attached);
+    const attached = await attachDesktopWidget({ activate: index <= 1 });
 
     if (attached) {
-      activateDesktopWidgetForInteraction();
       return;
     }
 
@@ -319,6 +336,44 @@ const scheduleDesktopAttachRetries = (): void => {
   desktopAttachTimer = setTimeout(() => {
     void retry(0);
   }, delays[0]);
+};
+
+const clearDesktopStabilization = (): void => {
+  for (const timer of desktopStabilizeTimers) {
+    clearTimeout(timer);
+  }
+  desktopStabilizeTimers = [];
+};
+
+/** 启动/恢复后多轮确认桌面附着，覆盖 Explorer 慢启动或 WorkerW 晚创建的机器。 */
+const scheduleDesktopStabilization = (): void => {
+  clearDesktopStabilization();
+  if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
+    return;
+  }
+
+  const delays = [300, 1000, 2500, 5000, 9000, 15000, 25000];
+  desktopStabilizeTimers = delays.map((delay, index) =>
+    setTimeout(() => {
+      if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
+        return;
+      }
+
+      void attachDesktopWidget({ activate: index < 3 });
+    }, delay)
+  );
+};
+
+/** 低频自检桌面附着，处理 Explorer 重启、显示器变化后窗口脱离的情况。 */
+const startDesktopMaintenance = (): void => {
+  clearInterval(desktopMaintenanceTimer);
+  desktopMaintenanceTimer = setInterval(() => {
+    if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
+      return;
+    }
+
+    void attachDesktopWidget({ activate: false });
+  }, 60_000);
 };
 
 /** 首次启动或无保存位置时，默认放在主屏工作区右上角 */
@@ -401,11 +456,7 @@ const createWidgetWindow = async (): Promise<void> => {
     widgetDragDetached = false;
     clearTimeout(dragAttachFallbackTimer);
     void (async () => {
-      const attached = await attachWindowToDesktop(widgetWindow!);
-      widgetWindow!.webContents.send("desktop-attach:result", attached);
-      if (attached) {
-        activateDesktopWidgetForInteraction();
-      }
+      await attachDesktopWidget({ activate: true });
     })();
   });
   widgetWindow.on("resize", persistWidgetBounds);
@@ -432,6 +483,7 @@ const createWidgetWindow = async (): Promise<void> => {
   });
   widgetWindow.on("closed", () => {
     clearTimeout(dragAttachFallbackTimer);
+    clearDesktopStabilization();
     widgetDragDetached = false;
     widgetWindow = null;
   });
@@ -611,6 +663,12 @@ const setWidgetDisplayMode = async (displayMode: WidgetDisplayMode): Promise<Ret
     await applyWidgetDisplayMode();
   }
 
+  if (nextDisplayMode === "desktop") {
+    scheduleDesktopStabilization();
+  } else {
+    clearDesktopStabilization();
+  }
+
   return settings;
 };
 
@@ -690,11 +748,7 @@ const registerIpc = (): void => {
 
       widgetDragDetached = false;
       void (async () => {
-        const attached = await attachWindowToDesktop(widgetWindow!);
-        widgetWindow!.webContents.send("desktop-attach:result", attached);
-        if (attached) {
-          activateDesktopWidgetForInteraction();
-        }
+        await attachDesktopWidget({ activate: true });
       })();
     }, 450);
   });
@@ -825,6 +879,16 @@ const createTray = (): void => {
   tray.on("click", () => void showWidgetOnCurrentPage());
 };
 
+const setupDesktopStabilityHooks = (): void => {
+  startDesktopMaintenance();
+
+  powerMonitor.on("resume", scheduleDesktopStabilization);
+  powerMonitor.on("unlock-screen", scheduleDesktopStabilization);
+  screen.on("display-added", scheduleDesktopStabilization);
+  screen.on("display-removed", scheduleDesktopStabilization);
+  screen.on("display-metrics-changed", scheduleDesktopStabilization);
+};
+
 /** 应用启动：初始化存储、窗口、全局快捷键与托盘。 */
 const boot = async (): Promise<void> => {
   store = new TodoStore();
@@ -835,6 +899,8 @@ const boot = async (): Promise<void> => {
   await createWidgetWindow();
   registerGlobalShortcuts();
   createTray();
+  setupDesktopStabilityHooks();
+  scheduleDesktopStabilization();
   setupAutoUpdater();
 };
 
@@ -861,6 +927,10 @@ app.on("activate", () => {
 });
 
 app.on("will-quit", () => {
+  clearTimeout(desktopAttachTimer);
+  clearTimeout(dragAttachFallbackTimer);
+  clearDesktopStabilization();
+  clearInterval(desktopMaintenanceTimer);
   globalShortcut.unregisterAll();
 });
 
