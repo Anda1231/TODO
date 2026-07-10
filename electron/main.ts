@@ -12,7 +12,12 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
 import { configureUserDataPath, getAppIconPath } from "./appPaths";
-import { attachWindowToDesktop, detachWindowFromDesktop, isDesktopHostAvailable, refreshDesktopWindowRegion } from "./desktop/attachToDesktop";
+import {
+  attachWindowToDesktop,
+  detachWindowFromDesktop,
+  isWindowDesktopAttached,
+  syncDesktopWindowBounds
+} from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
 import { checkForUpdates, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
 import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
@@ -41,6 +46,10 @@ let desktopAttachTimer: NodeJS.Timeout | undefined;
 let dragAttachFallbackTimer: NodeJS.Timeout | undefined;
 /** 拖动前已从桌面脱离，待 moved 后重新附着 */
 let widgetDragDetached = false;
+/** 缩放结束后重新附着的防抖定时器 */
+let resizeReattachTimer: NodeJS.Timeout | undefined;
+/** 缩放过程中是否已从桌面层脱离 */
+let widgetResizeDetached = false;
 
 /** 当前是否处于悬浮模式（手动置顶 或 临时显示） */
 const isFloating = (): boolean => pinnedFloat || temporaryFloat;
@@ -221,21 +230,22 @@ const attachDesktopWidget = async (): Promise<boolean> => {
     return false;
   }
 
-  if (!isDesktopHostAvailable()) {
-    return false;
-  }
-
-  const bounds = widgetWindow.getBounds();
   widgetWindow.setAlwaysOnTop(false);
   widgetWindow.setMinimizable(false);
   widgetWindow.setSkipTaskbar(true);
-  detachWindowFromDesktop(widgetWindow);
-  widgetWindow.setBounds(bounds);
-  widgetWindow.show();
 
   const attached = await attachWindowToDesktop(widgetWindow);
-  widgetWindow.webContents.send("desktop-attach:result", attached);
-  return attached;
+  if (attached) {
+    widgetWindow.showInactive();
+    widgetWindow.webContents.send("desktop-attach:result", true);
+    return true;
+  }
+
+  detachWindowFromDesktop(widgetWindow);
+  widgetWindow.setMinimizable(true);
+  widgetWindow.setSkipTaskbar(false);
+  widgetWindow.show();
+  return false;
 };
 
 /** 同步 Windows 登录项设置，与 todos.json 中的 launchAtLogin 保持一致 */
@@ -282,18 +292,14 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
 
   clearTimeout(dragAttachFallbackTimer);
   widgetDragDetached = false;
+  widgetResizeDetached = false;
   const attached = await attachDesktopWidget();
   if (!attached) {
-    applyNormalWidgetFallback(bounds);
-    if (!isDesktopHostAvailable()) {
-      applySettings(store.setDisplayMode("normal"));
-    } else {
-      scheduleDesktopAttachRetries();
-    }
+    scheduleDesktopAttachRetries();
     return;
   }
 
-  scheduleDesktopAttachRetries();
+  clearTimeout(desktopAttachTimer);
 };
 
 /** 确保挂件创建后一定会显示（部分机器上 ready-to-show 可能不触发） */
@@ -411,6 +417,18 @@ const createWidgetWindow = async (): Promise<void> => {
   });
 
   widgetWindow.on("move", persistWidgetBounds);
+  widgetWindow.on("will-resize", () => {
+    if (!widgetWindow || isFloating() || !isDesktopDisplayMode() || widgetResizeDetached) {
+      return;
+    }
+
+    if (!isWindowDesktopAttached(widgetWindow)) {
+      return;
+    }
+
+    detachWindowFromDesktop(widgetWindow);
+    widgetResizeDetached = true;
+  });
   widgetWindow.on("moved", () => {
     if (!widgetWindow || isFloating() || !widgetDragDetached) {
       return;
@@ -422,11 +440,28 @@ const createWidgetWindow = async (): Promise<void> => {
       await attachDesktopWidget();
     })();
   });
-  widgetWindow.on("resize", () => {
-    persistWidgetBounds();
-    if (widgetWindow && isDesktopDisplayMode() && !isFloating()) {
-      refreshDesktopWindowRegion(widgetWindow);
+  widgetWindow.on("resize", persistWidgetBounds);
+  widgetWindow.on("resized", () => {
+    if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
+      return;
     }
+
+    clearTimeout(resizeReattachTimer);
+    resizeReattachTimer = setTimeout(() => {
+      if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
+        return;
+      }
+
+      if (widgetResizeDetached) {
+        widgetResizeDetached = false;
+        void attachDesktopWidget();
+        return;
+      }
+
+      if (isWindowDesktopAttached(widgetWindow)) {
+        syncDesktopWindowBounds(widgetWindow);
+      }
+    }, 150);
   });
   widgetWindow.on("minimize", () => {
     if (!isFloating()) {
@@ -451,7 +486,9 @@ const createWidgetWindow = async (): Promise<void> => {
   });
   widgetWindow.on("closed", () => {
     clearTimeout(dragAttachFallbackTimer);
+    clearTimeout(resizeReattachTimer);
     widgetDragDetached = false;
+    widgetResizeDetached = false;
     widgetWindow = null;
   });
 
@@ -876,6 +913,7 @@ app.on("activate", () => {
 app.on("will-quit", () => {
   clearTimeout(desktopAttachTimer);
   clearTimeout(dragAttachFallbackTimer);
+  clearTimeout(resizeReattachTimer);
   globalShortcut.unregisterAll();
 });
 
