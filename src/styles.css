@@ -676,7 +676,7 @@ h2 {
   text-align: left;
   padding: 0;
   cursor: pointer;
-  /* 最多两行；超出截断后点击走弹窗编辑 */
+  /* 列表最多两行；是否弹窗编辑另按「单行能否装下」判断 */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1134,16 +1134,70 @@ h2 {
 }
 
 .update-notes {
-  max-height: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 200px;
   overflow: auto;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--accent-border);
   border-radius: 14px;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--surface-soft);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.55;
-  white-space: pre-wrap;
-  padding: 10px 12px;
+  padding: 12px 14px;
+}
+
+.update-notes-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.update-notes-section + .update-notes-section {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.update-notes-title {
+  margin: 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.update-notes-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.update-notes-list li {
+  position: relative;
+  padding-left: 14px;
+  color: var(--text);
+}
+
+.update-notes-list li::before {
+  content: "";
+  position: absolute;
+  top: 0.55em;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.update-notes-paragraph,
+.update-notes-empty {
+  margin: 0;
+  color: var(--text-muted);
 }
 
 .settings-action-button {

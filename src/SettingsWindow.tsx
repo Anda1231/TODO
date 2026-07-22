@@ -10,6 +10,7 @@ import type React from "react";
 import type { AppSettings, WidgetDisplayMode, WidgetTheme } from "./types/todo";
 import { WIDGET_OPACITY_MAX, WIDGET_OPACITY_MIN } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
+import { parseReleaseNotes } from "./updateNotes";
 
 const formatShortcut = (shortcut?: string, fallback = "CommandOrControl+2"): string =>
   (shortcut ?? fallback)
@@ -171,6 +172,10 @@ export default function SettingsWindow(): React.ReactElement {
   const updateMessage = updateStatusMessage(updateStatus, versionInfo);
   const isUpdateBusy = updateStatus.state === "checking" || updateStatus.state === "downloading";
   const availableNotes = updateStatus.state === "available" ? updateStatus.releaseNotes.trim() : "";
+  const releaseNoteSections = useMemo(
+    () => (availableNotes ? parseReleaseNotes(availableNotes) : []),
+    [availableNotes]
+  );
 
   return (
     <main className="settings-window-shell">
@@ -316,7 +321,27 @@ export default function SettingsWindow(): React.ReactElement {
               <p className="settings-message">{updateMessage}</p>
               {updateStatus.state === "available" ? (
                 <div className="update-notes" aria-label="更新日志">
-                  {availableNotes ? availableNotes : "暂无更新日志"}
+                  {releaseNoteSections.length > 0 ? (
+                    releaseNoteSections.map((section, sectionIndex) => (
+                      <section className="update-notes-section" key={`${section.title ?? "p"}-${sectionIndex}`}>
+                        {section.title ? <h3 className="update-notes-title">{section.title}</h3> : null}
+                        {section.items.length > 0 ? (
+                          <ul className="update-notes-list">
+                            {section.items.map((item, itemIndex) => (
+                              <li key={`${sectionIndex}-${itemIndex}`}>{item}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {section.paragraphs.map((paragraph, paragraphIndex) => (
+                          <p className="update-notes-paragraph" key={`${sectionIndex}-p-${paragraphIndex}`}>
+                            {paragraph}
+                          </p>
+                        ))}
+                      </section>
+                    ))
+                  ) : (
+                    <p className="update-notes-empty">暂无更新日志</p>
+                  )}
                 </div>
               ) : null}
               <div className="settings-actions">

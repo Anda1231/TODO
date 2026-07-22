@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -23,13 +24,20 @@ const repo = publishConfig.repo;
 const repoSlug = `${owner}/${repo}`;
 const token = process.env.GH_TOKEN;
 
-const files = [
-  "latest.yml",
-  "portable.yml",
+/**
+ * 先传二进制，最后强制覆盖 yml。
+ * yml 体积几乎固定，若只按 size 判断会误跳过，导致校验和与 exe 错配。
+ */
+const binaryFiles = [
   `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`,
   `Desktop-Todo-Widget-Setup-${version}.exe`,
   `Desktop-Todo-Widget-${version}.exe`
 ];
+const manifestFiles = ["latest.yml", "portable.yml"];
+const files = [...binaryFiles, ...manifestFiles];
+
+const sha256Hex = (filePath) =>
+  createHash("sha256").update(readFileSync(filePath)).digest("hex");
 
 const ghEnv = {
   ...process.env,
@@ -79,10 +87,16 @@ const ensureGh = () => {
   }
 };
 
-const getRemoteAssetSizes = () => {
+/** 读取远端资源的 size 与 sha256（GitHub digest 字段） */
+const getRemoteAssets = () => {
   const result = spawnSync(
     "gh",
-    ["api", `repos/${owner}/${repo}/releases/tags/${tag}`, "--jq", ".assets[] | [.name, .size] | @tsv"],
+    [
+      "api",
+      `repos/${owner}/${repo}/releases/tags/${tag}`,
+      "--jq",
+      ".assets[] | [.name, (.size|tostring), (.digest // \"\")] | @tsv"
+    ],
     {
       env: ghEnv,
       encoding: "utf8",
@@ -94,22 +108,21 @@ const getRemoteAssetSizes = () => {
     throw new Error(`读取 Release 资源失败: ${result.stderr || result.stdout}`);
   }
 
-  const sizes = new Map();
+  /** @type {Map<string, { size: number, sha256: string | null }>} */
+  const assets = new Map();
   for (const line of result.stdout.split(/\r?\n/)) {
     if (!line.trim()) {
       continue;
     }
-    const tab = line.lastIndexOf("\t");
-    if (tab === -1) {
+    const [name, sizeText, digest = ""] = line.split("\t");
+    const size = Number(sizeText);
+    if (!name || !Number.isFinite(size)) {
       continue;
     }
-    const name = line.slice(0, tab);
-    const size = Number(line.slice(tab + 1));
-    if (name && Number.isFinite(size)) {
-      sizes.set(name, size);
-    }
+    const sha256 = digest.startsWith("sha256:") ? digest.slice("sha256:".length) : null;
+    assets.set(name, { size, sha256 });
   }
-  return sizes;
+  return assets;
 };
 
 const ensureRelease = () => {
@@ -131,21 +144,36 @@ const ensureRelease = () => {
   runGh(createArgs, "创建 Release");
 };
 
-const pickFilesToUpload = (remoteSizes) => {
+const pickFilesToUpload = (remoteAssets) => {
   const pending = [];
 
   for (const fileName of files) {
     const filePath = join(releaseDir, fileName);
     const localSize = statSync(filePath).size;
-    const remoteSize = remoteSizes.get(fileName);
+    const remote = remoteAssets.get(fileName);
+    const isManifest = manifestFiles.includes(fileName);
 
-    if (remoteSize === localSize) {
-      console.log(`跳过 ${fileName}（远端已存在，${formatSize(localSize)}）`);
+    // 清单必须与当前二进制一致，始终覆盖上传
+    if (isManifest) {
+      console.log(`待上传 ${fileName}（清单强制覆盖，${formatSize(localSize)}）`);
+      pending.push(fileName);
       continue;
     }
 
-    if (remoteSize !== undefined) {
-      console.log(`待上传 ${fileName}（远端 ${formatSize(remoteSize)} -> 本地 ${formatSize(localSize)}）`);
+    if (remote) {
+      const localSha256 = sha256Hex(filePath);
+      if (remote.sha256 && remote.sha256 === localSha256) {
+        console.log(`跳过 ${fileName}（远端 sha256 一致，${formatSize(localSize)}）`);
+        continue;
+      }
+      // 无 digest 时退回按 size；有 digest 但不一致则重传
+      if (!remote.sha256 && remote.size === localSize) {
+        console.log(`跳过 ${fileName}（远端 size 一致且无 digest，${formatSize(localSize)}）`);
+        continue;
+      }
+      console.log(
+        `待上传 ${fileName}（远端 ${formatSize(remote.size)} -> 本地 ${formatSize(localSize)}）`
+      );
     } else {
       console.log(`待上传 ${fileName}（${formatSize(localSize)}）`);
     }
@@ -201,8 +229,8 @@ const main = () => {
   console.log(`发布 ${tag} 到 ${repoSlug}`);
   ensureRelease();
 
-  const remoteSizes = getRemoteAssetSizes();
-  const pending = pickFilesToUpload(remoteSizes);
+  const remoteAssets = getRemoteAssets();
+  const pending = pickFilesToUpload(remoteAssets);
   uploadFiles(pending);
 
   console.log(`完成: https://github.com/${repoSlug}/releases/tag/${tag}`);
