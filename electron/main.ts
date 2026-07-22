@@ -769,6 +769,11 @@ const registerIpc = (): void => {
     broadcastSnapshot();
     return snapshot;
   });
+  ipcMain.handle("todos:undoLastDelete", () => {
+    const snapshot = store.undoLastDelete();
+    broadcastSnapshot();
+    return snapshot;
+  });
   ipcMain.handle("todos:update", (_event, id: string, update: TodoUpdate) => {
     const snapshot = store.updateTodo(id, update);
     broadcastSnapshot();

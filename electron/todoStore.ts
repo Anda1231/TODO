@@ -24,6 +24,7 @@ import {
 } from "../src/types/todo";
 import type {
   AppSettings,
+  Todo,
   TodoCalendarDay,
   TodoDatabase,
   TodoDraft,
@@ -76,6 +77,8 @@ const normalizeTodoRecord = (todo: TodoDatabase["todos"][number]): TodoDatabase[
  */
 export class TodoStore {
   private database: TodoDatabase;
+  /** 最近一次硬删除的完整待办，仅内存，供撤回；不落盘 */
+  private lastDeletedTodo: Todo | null = null;
 
   constructor(private readonly filePath = join(app.getPath("userData"), "todos.json")) {
     this.database = this.load();
@@ -135,8 +138,28 @@ export class TodoStore {
     return this.getSnapshot();
   }
 
+  /** 硬删除待办，并缓存副本供 undoLastDelete */
   deleteTodo(id: string): TodoSnapshot {
+    const removed = this.database.todos.find((todo) => todo.id === id);
+    if (!removed) return this.getSnapshot();
+
+    this.lastDeletedTodo = structuredClone(removed);
     this.database.todos = this.database.todos.filter((todo) => todo.id !== id);
+    this.save();
+    return this.getSnapshot();
+  }
+
+  /** 撤回最近一次删除；无缓存或 id 已存在时原样返回 */
+  undoLastDelete(): TodoSnapshot {
+    const restored = this.lastDeletedTodo;
+    if (!restored) return this.getSnapshot();
+
+    this.lastDeletedTodo = null;
+    if (this.database.todos.some((todo) => todo.id === restored.id)) {
+      return this.getSnapshot();
+    }
+
+    this.database.todos.push(restored);
     this.save();
     return this.getSnapshot();
   }

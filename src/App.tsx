@@ -1,7 +1,7 @@
 /**
  * 桌面挂件主界面（?view=widget）。
  *
- * 功能：今日待办列表、内联/弹窗编辑、完成/删除、紧急评分、
+ * 功能：今日待办列表、内联/弹窗编辑、完成/删除（确认 + 撤回）、紧急评分、
  * 标签与子任务、右键查看添加时间与已过天数、置顶切换、完成区预览、
  * 打开日历/设置/添加窗口（全局快捷键仍可唤起同一添加窗）。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
@@ -103,6 +103,11 @@ export default function App(): React.ReactElement {
    */
   const [editModal, setEditModal] = useState<{ id: string; title: string } | null>(null);
   const editModalTextareaRef = useRef<HTMLTextAreaElement>(null);
+  /** 删除确认弹窗；确认后才真正调用 deleteTodo */
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
+  /** 删除成功后的撤回条；超时自动消失 */
+  const [deleteUndo, setDeleteUndo] = useState<{ title: string } | null>(null);
+  const deleteUndoTimerRef = useRef<number | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   /** null=未知，true/false=最近一次桌面附着结果 */
   const [desktopAttached, setDesktopAttached] = useState<boolean | null>(null);
@@ -138,8 +143,49 @@ export default function App(): React.ReactElement {
       offDesktop();
       offSettings();
       offFloat();
+      if (deleteUndoTimerRef.current !== null) {
+        window.clearTimeout(deleteUndoTimerRef.current);
+      }
     };
   }, []);
+
+  /** 展示撤回条，约 10 秒后自动收起 */
+  const showDeleteUndo = (title: string): void => {
+    if (deleteUndoTimerRef.current !== null) {
+      window.clearTimeout(deleteUndoTimerRef.current);
+    }
+    setDeleteUndo({ title });
+    deleteUndoTimerRef.current = window.setTimeout(() => {
+      setDeleteUndo(null);
+      deleteUndoTimerRef.current = null;
+    }, 10_000);
+  };
+
+  const dismissDeleteUndo = (): void => {
+    if (deleteUndoTimerRef.current !== null) {
+      window.clearTimeout(deleteUndoTimerRef.current);
+      deleteUndoTimerRef.current = null;
+    }
+    setDeleteUndo(null);
+  };
+
+  /** 确认删除：落盘后关弹窗并展示撤回 */
+  const confirmDeleteTodo = async (): Promise<void> => {
+    if (!deleteConfirm) return;
+    const { id, title } = deleteConfirm;
+    setDeleteConfirm(null);
+    setContextMenu(null);
+    const next = await window.todoApi.deleteTodo(id);
+    setSnapshot(next);
+    showDeleteUndo(title);
+  };
+
+  /** 撤回最近一次删除 */
+  const undoDeleteTodo = async (): Promise<void> => {
+    dismissDeleteUndo();
+    const next = await window.todoApi.undoLastDelete();
+    setSnapshot(next);
+  };
 
   /** 打开新右键菜单时重置面板与草稿 */
   useEffect(() => {
@@ -360,6 +406,19 @@ export default function App(): React.ReactElement {
     };
   }, [editModal?.id]);
 
+  /** 删除确认弹窗：Escape 取消 */
+  useEffect(() => {
+    if (!deleteConfirm) return;
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDeleteConfirm(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteConfirm?.id]);
+
   /** 弹窗对应待办被删掉时自动关闭，避免对着幽灵数据编辑 */
   useEffect(() => {
     if (!editModal) return;
@@ -538,7 +597,11 @@ export default function App(): React.ReactElement {
                       className="icon-button danger-button todo-delete-button"
                       type="button"
                       aria-label={`删除 ${todo.title}`}
-                      onClick={() => window.todoApi.deleteTodo(todo.id)}
+                      onClick={() => {
+                        setContextMenu(null);
+                        setEditModal(null);
+                        setDeleteConfirm({ id: todo.id, title: todo.title });
+                      }}
                     >
                       <Trash2 aria-hidden className="button-icon" strokeWidth={2} />
                     </button>
@@ -650,6 +713,66 @@ export default function App(): React.ReactElement {
                 </button>
               </div>
             </div>
+          </div>
+        ) : null}
+
+        {/* 删除确认：与编辑弹窗同结构，危险操作用红色主按钮 */}
+        {deleteConfirm ? (
+          <div
+            className="todo-edit-modal-backdrop no-drag"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setDeleteConfirm(null);
+            }}
+          >
+            <div className="todo-edit-modal" role="dialog" aria-modal="true" aria-label="确认删除">
+              <header className="todo-edit-modal-header">
+                <h2>删除待办？</h2>
+                <button
+                  className="icon-button"
+                  type="button"
+                  title="关闭"
+                  aria-label="关闭"
+                  onClick={() => setDeleteConfirm(null)}
+                >
+                  <Icon name="quit" />
+                </button>
+              </header>
+              <p className="todo-delete-confirm-text">
+                确定删除「{deleteConfirm.title}」？删除后可在短时间内撤回。
+              </p>
+              <div className="todo-edit-modal-actions">
+                <button type="button" className="todo-edit-modal-cancel" onClick={() => setDeleteConfirm(null)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="todo-edit-modal-danger"
+                  onClick={() => void confirmDeleteTodo()}
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* 删除成功后的撤回条；超时或点关闭后消失 */}
+        {deleteUndo ? (
+          <div className="todo-delete-undo no-drag" role="status">
+            <span className="todo-delete-undo-text">已删除「{deleteUndo.title}」</span>
+            <button type="button" className="todo-delete-undo-action" onClick={() => void undoDeleteTodo()}>
+              撤回
+            </button>
+            <button
+              type="button"
+              className="icon-button todo-delete-undo-close"
+              title="关闭"
+              aria-label="关闭撤回提示"
+              onClick={dismissDeleteUndo}
+            >
+              <Icon name="quit" />
+            </button>
           </div>
         ) : null}
 
