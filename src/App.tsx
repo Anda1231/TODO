@@ -2,15 +2,21 @@
  * 桌面挂件主界面（?view=widget）。
  *
  * 功能：今日待办列表、内联添加/编辑/完成/删除、紧急评分、
- * 右键查看添加时间与已过天数、置顶切换、完成区预览、
+ * 标签与子任务、右键查看添加时间与已过天数、置顶切换、完成区预览、
  * 打开日历/设置/快捷添加窗口。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
-import { Calendar, Minus, Pin, Settings, Trash2, X } from "lucide-react";
+import { Calendar, CalendarClock, ListTodo, Minus, Pin, Settings, Tag, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import TodoRating from "./TodoRating";
+import TodoSubtasks from "./TodoSubtasks";
+import { TodoTagChips, TodoTagEditor } from "./TodoTags";
 import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
+import { DUE_DAYS_MAX, DUE_DAYS_MIN } from "./types/todo";
+
+/** 右键菜单当前展开的面板；同时只开一个，保持菜单紧凑 */
+type ContextPanel = "due" | "tags" | "subtasks" | null;
 
 /** IPC 加载前的占位快照，避免首屏 undefined */
 const emptySnapshot: TodoSnapshot = {
@@ -55,11 +61,11 @@ const formatDaysAgo = (iso: string): string => {
   return `已过去 ${days} 天`;
 };
 
-type TodoInfoMenu = {
+/** 右键菜单定位信息；标签内容从 snapshot 按 id 实时取，避免编辑后菜单不同步 */
+type TodoContextMenu = {
   id: string;
   x: number;
   y: number;
-  createdAt: string;
 };
 
 /** Electron 加速器格式 → 用户可读，如 CommandOrControl+Alt+T → Ctrl + Alt + T */
@@ -97,9 +103,20 @@ export default function App(): React.ReactElement {
   const [desktopAttached, setDesktopAttached] = useState<boolean | null>(null);
   /** 是否处于「始终置顶」模式，与主进程 pinnedFloat 同步 */
   const [isFloatingOnPage, setIsFloatingOnPage] = useState(false);
-  /** 右键查看添加时间的浮层；坐标为视口 clientX/Y */
-  const [infoMenu, setInfoMenu] = useState<TodoInfoMenu | null>(null);
-  const infoMenuRef = useRef<HTMLDivElement>(null);
+  /** 右键菜单：添加时间 + 编辑标签；坐标为视口 clientX/Y */
+  const [contextMenu, setContextMenu] = useState<TodoContextMenu | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  /** null=全部；否则按标签筛选今日待办 */
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  /** 右键菜单内「添加子任务」输入草稿 */
+  const [subtaskDraft, setSubtaskDraft] = useState("");
+  /** 右键菜单展开面板：预计天数 / 标签 / 子任务 */
+  const [contextPanel, setContextPanel] = useState<ContextPanel>(null);
+  /** 预计完成天数输入草稿；点「确定」才落盘 */
+  const [dueDaysDraft, setDueDaysDraft] = useState("");
+  /** 与草稿同步，供提交时读取最新值 */
+  const dueDaysDraftRef = useRef("");
+  dueDaysDraftRef.current = dueDaysDraft;
 
   /** 挂载时拉取初始数据，并订阅主进程推送；unmount 时取消全部监听 */
   useEffect(() => {
@@ -119,49 +136,114 @@ export default function App(): React.ReactElement {
     };
   }, []);
 
-  /** 右键信息浮层打开时：点外部 / Escape / 滚动关闭 */
+  /** 打开新右键菜单时重置面板与草稿 */
   useEffect(() => {
-    if (!infoMenu) return;
+    setSubtaskDraft("");
+    setContextPanel(null);
+    setDueDaysDraft("");
+  }, [contextMenu?.id]);
 
-    const close = (): void => setInfoMenu(null);
+  /** 切换右键面板；再次点击同一图标则收起 */
+  const toggleContextPanel = (panel: Exclude<ContextPanel, null>): void => {
+    setContextPanel((current) => (current === panel ? null : panel));
+  };
 
-    const handlePointerDown = (event: PointerEvent): void => {
-      if (!infoMenuRef.current?.contains(event.target as Node)) {
-        close();
-      }
+  /** 右键菜单打开时：点外部 / Escape 关闭（不再监听 scroll，展开编辑会误触发并关掉菜单） */
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const close = (): void => setContextMenu(null);
+
+    const handleOutsidePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (contextMenuRef.current?.contains(target)) return;
+      close();
     };
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") close();
     };
 
-    window.addEventListener("pointerdown", handlePointerDown);
+    // 下一帧再绑，避免打开菜单的那次右键/点击立刻关闭
+    const timer = window.setTimeout(() => {
+      window.addEventListener("pointerdown", handleOutsidePointerDown, true);
+    }, 0);
+
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("scroll", close, true);
     return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
+      window.clearTimeout(timer);
+      window.removeEventListener("pointerdown", handleOutsidePointerDown, true);
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("scroll", close, true);
     };
-  }, [infoMenu]);
+  }, [contextMenu]);
 
-  /** 将浮层钳制在窗口内，避免贴边时显示不全 */
+  /** 将浮层钳制在窗口内；仅在打开菜单时计算一次，避免编辑时重算导致按钮错位 */
   useLayoutEffect(() => {
-    if (!infoMenu || !infoMenuRef.current) return;
+    if (!contextMenu || !contextMenuRef.current) return;
 
-    const el = infoMenuRef.current;
+    const el = contextMenuRef.current;
     const pad = 8;
     const { width, height } = el.getBoundingClientRect();
     const maxLeft = Math.max(pad, window.innerWidth - width - pad);
     const maxTop = Math.max(pad, window.innerHeight - height - pad);
-    el.style.left = `${Math.min(Math.max(pad, infoMenu.x), maxLeft)}px`;
-    el.style.top = `${Math.min(Math.max(pad, infoMenu.y), maxTop)}px`;
-  }, [infoMenu]);
+    el.style.left = `${Math.min(Math.max(pad, contextMenu.x), maxLeft)}px`;
+    el.style.top = `${Math.min(Math.max(pad, contextMenu.y), maxTop)}px`;
+  }, [contextMenu]);
+
+  /** 当前右键菜单对应的待办；删除后变为 null，菜单随之关闭 */
+  const contextMenuTodo = contextMenu
+    ? snapshot.activeTodos.find((todo) => todo.id === contextMenu.id) ?? null
+    : null;
+
+  /** 保存预计天数；空值表示不改动并收起。由「确定」触发 */
+  const commitDueDays = async (): Promise<void> => {
+    if (!contextMenuTodo) return;
+    const todoId = contextMenuTodo.id;
+    const trimmed = dueDaysDraftRef.current.trim();
+    if (!trimmed) {
+      setContextPanel(null);
+      setDueDaysDraft(contextMenuTodo.dueDays ? String(contextMenuTodo.dueDays) : "");
+      return;
+    }
+    const days = Number(trimmed);
+    if (!Number.isFinite(days)) {
+      setDueDaysDraft(contextMenuTodo.dueDays ? String(contextMenuTodo.dueDays) : "");
+      return;
+    }
+    const next = await window.todoApi.setTodoDueDays(todoId, days);
+    setSnapshot(next);
+    setContextPanel(null);
+  };
+
+  /** 今日进行中待办用过的标签，供顶部筛选条展示 */
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    for (const todo of snapshot.activeTodos) {
+      for (const tag of todo.tags) tags.add(tag);
+    }
+    return [...tags];
+  }, [snapshot.activeTodos]);
+
+  /** 经标签筛选后的列表；无筛选时等于全部进行中待办 */
+  const visibleTodos = useMemo(() => {
+    if (!tagFilter) return snapshot.activeTodos;
+    return snapshot.activeTodos.filter((todo) => todo.tags.includes(tagFilter));
+  }, [snapshot.activeTodos, tagFilter]);
+
+  /** 当前筛选标签已不存在时（例如最后一条带该标签的待办被删），自动回到「全部」 */
+  useEffect(() => {
+    if (tagFilter && !availableTags.includes(tagFilter)) {
+      setTagFilter(null);
+    }
+  }, [availableTags, tagFilter]);
 
   const remainingLabel = useMemo(() => {
     if (snapshot.activeTodos.length === 0) return "今天没有待办";
+    // 筛选中时显示该标签下的数量，避免与总数混淆
+    if (tagFilter) return `「${tagFilter}」 ${visibleTodos.length} 件`;
     return `还有 ${snapshot.activeTodos.length} 件待办`;
-  }, [snapshot.activeTodos.length]);
+  }, [snapshot.activeTodos.length, tagFilter, visibleTodos.length]);
   const unpinLabel = settings?.displayMode === "desktop" ? "取消置顶，回到桌面固定" : "取消置顶，回到普通窗口";
 
   const addTodo = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
@@ -286,73 +368,119 @@ export default function App(): React.ReactElement {
           </button>
         </div>
 
+        {/* 仅当存在带标签的待办时显示筛选条 */}
+        {availableTags.length > 0 ? (
+          <div className="tag-filter no-drag" aria-label="按标签筛选">
+            <button
+              type="button"
+              className={`tag-filter-chip${tagFilter === null ? " active" : ""}`}
+              onClick={() => setTagFilter(null)}
+            >
+              全部
+            </button>
+            {availableTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className={`tag-filter-chip${tagFilter === tag ? " active" : ""}`}
+                onClick={() => setTagFilter(tag)}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <section className="todo-list no-drag" aria-label="今日待办">
           {snapshot.activeTodos.length === 0 ? (
             <div className="empty-state">
               <strong>今天清空了</strong>
               <span>全局快捷键 {formatShortcut(settings?.shortcut)} 可以随时添加。</span>
             </div>
+          ) : visibleTodos.length === 0 ? (
+            <div className="empty-state">
+              <strong>没有匹配的待办</strong>
+              <span>换个标签，或点「全部」查看今天所有事项。</span>
+            </div>
           ) : (
-            snapshot.activeTodos.map((todo) => (
+            visibleTodos.map((todo) => (
               <article
                 className="todo-item"
                 key={todo.id}
                 onContextMenu={(event) => {
+                  // 阻止系统菜单；标签编辑与添加时间都放在自定义右键菜单里
                   event.preventDefault();
-                  setInfoMenu({
+                  setContextMenu({
                     id: todo.id,
                     x: event.clientX,
-                    y: event.clientY,
-                    createdAt: todo.createdAt
+                    y: event.clientY
                   });
                 }}
               >
-                <button
-                  className="check-button"
-                  type="button"
-                  aria-label={`完成 ${todo.title}`}
-                  onClick={() => window.todoApi.completeTodo(todo.id)}
-                />
-                <TodoRating
-                  rating={todo.rating}
-                  onChange={(rating) => {
-                    void window.todoApi.setTodoRating(todo.id, rating).then(setSnapshot);
+                <div className="todo-item-main">
+                  <button
+                    className="check-button"
+                    type="button"
+                    aria-label={`完成 ${todo.title}`}
+                    onClick={() => window.todoApi.completeTodo(todo.id)}
+                  />
+                  <TodoRating
+                    rating={todo.rating}
+                    onChange={(rating) => {
+                      void window.todoApi.setTodoRating(todo.id, rating).then(setSnapshot);
+                    }}
+                  />
+                  <div className="todo-item-body">
+                    {editingId === todo.id ? (
+                      <input
+                        className="todo-title-input"
+                        value={editingTitle}
+                        onChange={(event) => setEditingTitle(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveEdit();
+                          }
+                          if (event.key === "Escape") {
+                            skipBlurSaveRef.current = true;
+                            cancelEdit();
+                          }
+                        }}
+                        onBlur={handleEditBlur}
+                        aria-label="编辑待办标题"
+                        autoFocus
+                      />
+                    ) : (
+                      <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
+                        {todo.title}
+                      </button>
+                    )}
+                    {/* 已按标签筛选时不再重复展示标签 chips，避免拥挤 */}
+                    {tagFilter ? null : <TodoTagChips tags={todo.tags} />}
+                  </div>
+                  {editingId !== todo.id ? (
+                    <button
+                      className="icon-button danger-button todo-delete-button"
+                      type="button"
+                      aria-label={`删除 ${todo.title}`}
+                      onClick={() => window.todoApi.deleteTodo(todo.id)}
+                    >
+                      <Trash2 aria-hidden className="button-icon" strokeWidth={2} />
+                    </button>
+                  ) : null}
+                </div>
+                <TodoSubtasks
+                  subtasks={todo.subtasks}
+                  onToggle={(subtaskId) => {
+                    void window.todoApi.toggleTodoSubtask(todo.id, subtaskId).then(setSnapshot);
+                  }}
+                  onUpdate={(subtaskId, title) => {
+                    void window.todoApi.updateTodoSubtask(todo.id, subtaskId, title).then(setSnapshot);
+                  }}
+                  onDelete={(subtaskId) => {
+                    void window.todoApi.deleteTodoSubtask(todo.id, subtaskId).then(setSnapshot);
                   }}
                 />
-                {editingId === todo.id ? (
-                  <input
-                    className="todo-title-input"
-                    value={editingTitle}
-                    onChange={(event) => setEditingTitle(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void saveEdit();
-                      }
-                      if (event.key === "Escape") {
-                        skipBlurSaveRef.current = true;
-                        cancelEdit();
-                      }
-                    }}
-                    onBlur={handleEditBlur}
-                    aria-label="编辑待办标题"
-                    autoFocus
-                  />
-                ) : (
-                  <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
-                    {todo.title}
-                  </button>
-                )}
-                {editingId !== todo.id ? (
-                  <button
-                    className="icon-button danger-button todo-delete-button"
-                    type="button"
-                    aria-label={`删除 ${todo.title}`}
-                    onClick={() => window.todoApi.deleteTodo(todo.id)}
-                  >
-                    <Trash2 aria-hidden className="button-icon" strokeWidth={2} />
-                  </button>
-                ) : null}
               </article>
             ))
           )}
@@ -399,19 +527,153 @@ export default function App(): React.ReactElement {
               : `${formatShortcut(settings?.shortcut)} 呼出添加，托盘图标可显示组件`}
           </span>
         </footer>
+
+        {/* 放在 widget-card 内并标记 no-drag，避免透明窗拖拽区吞点击 */}
+        {contextMenu && contextMenuTodo ? (
+          <div
+            className="todo-context-menu no-drag"
+            ref={contextMenuRef}
+            role="dialog"
+            aria-label="待办菜单"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="todo-context-meta">
+              <strong>{formatCreatedAt(contextMenuTodo.createdAt)}</strong>
+              <div className="todo-context-days-row">
+                <span className="todo-info-days">{formatDaysAgo(contextMenuTodo.createdAt)}</span>
+                {contextPanel !== "due" && contextMenuTodo.dueDays ? (
+                  <span className="todo-due-days-label">预计 {contextMenuTodo.dueDays} 天</span>
+                ) : null}
+              </div>
+            </div>
+
+            {/* 图标工具条：点开对应面板，再次点击收起 */}
+            <div className="todo-context-actions">
+              <button
+                type="button"
+                className={`todo-context-icon-button${contextMenuTodo.dueDays ? " has-value" : ""}${contextPanel === "due" ? " open" : ""}`}
+                title="预计完成天数"
+                aria-label="预计完成天数"
+                aria-expanded={contextPanel === "due"}
+                onClick={() => {
+                  setDueDaysDraft(contextMenuTodo.dueDays ? String(contextMenuTodo.dueDays) : "1");
+                  toggleContextPanel("due");
+                }}
+              >
+                <CalendarClock aria-hidden strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                className={`todo-context-icon-button${contextMenuTodo.tags.length > 0 ? " has-value" : ""}${contextPanel === "tags" ? " open" : ""}`}
+                title="标签"
+                aria-label="标签"
+                aria-expanded={contextPanel === "tags"}
+                onClick={() => toggleContextPanel("tags")}
+              >
+                <Tag aria-hidden strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                className={`todo-context-icon-button${contextMenuTodo.subtasks.length > 0 ? " has-value" : ""}${contextPanel === "subtasks" ? " open" : ""}`}
+                title="子任务"
+                aria-label="子任务"
+                aria-expanded={contextPanel === "subtasks"}
+                onClick={() => toggleContextPanel("subtasks")}
+              >
+                <ListTodo aria-hidden strokeWidth={2} />
+              </button>
+            </div>
+
+            {contextPanel === "due" ? (
+              <form
+                className="todo-due-days-editor"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void commitDueDays();
+                }}
+              >
+                <span>预计</span>
+                <input
+                  className="todo-due-days-input"
+                  type="number"
+                  min={DUE_DAYS_MIN}
+                  max={DUE_DAYS_MAX}
+                  inputMode="numeric"
+                  value={dueDaysDraft}
+                  placeholder="天"
+                  aria-label="预计几天完成"
+                  autoFocus
+                  onChange={(event) => setDueDaysDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setContextPanel(null);
+                    }
+                  }}
+                />
+                <span>天</span>
+                <button type="submit" className="todo-due-confirm">
+                  确定
+                </button>
+                {contextMenuTodo.dueDays ? (
+                  <button
+                    type="button"
+                    className="todo-due-clear"
+                    onClick={() => {
+                      void window.todoApi.setTodoDueDays(contextMenuTodo.id, null).then((next) => {
+                        setSnapshot(next);
+                        setDueDaysDraft("");
+                        setContextPanel(null);
+                      });
+                    }}
+                  >
+                    清除
+                  </button>
+                ) : null}
+              </form>
+            ) : null}
+
+            {contextPanel === "tags" ? (
+              <TodoTagEditor
+                tags={contextMenuTodo.tags}
+                onChange={(tags) => {
+                  void window.todoApi.setTodoTags(contextMenuTodo.id, tags).then(setSnapshot);
+                }}
+              />
+            ) : null}
+
+            {contextPanel === "subtasks" ? (
+              <form
+                className="todo-context-subtask"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const title = subtaskDraft.trim();
+                  if (!title) return;
+                  void window.todoApi.addTodoSubtask(contextMenuTodo.id, title).then((next) => {
+                    setSnapshot(next);
+                    setSubtaskDraft("");
+                    setContextPanel(null);
+                  });
+                }}
+              >
+                <div className="todo-tags-custom">
+                  <input
+                    value={subtaskDraft}
+                    onChange={(event) => setSubtaskDraft(event.target.value)}
+                    placeholder="添加子任务…"
+                    aria-label="添加子任务"
+                    maxLength={80}
+                    autoFocus
+                  />
+                  <button type="submit">添加</button>
+                </div>
+              </form>
+            ) : null}
+          </div>
+        ) : null}
       </section>
-      {infoMenu ? (
-        <div
-          className="todo-info-menu"
-          ref={infoMenuRef}
-          role="dialog"
-          aria-label="待办添加时间"
-          style={{ left: infoMenu.x, top: infoMenu.y }}
-        >
-          <strong>{formatCreatedAt(infoMenu.createdAt)}</strong>
-          <span className="todo-info-days">{formatDaysAgo(infoMenu.createdAt)}</span>
-        </div>
-      ) : null}
     </main>
   );
 }

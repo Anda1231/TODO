@@ -1,13 +1,14 @@
 /**
  * 偏好设置窗口（?view=settings）。
  *
- * 支持：开机自启、录制全局快捷键（快速添加 / 显示组件）。
+ * 支持：开机自启、显示模式、主题/透明度、录制全局快捷键、应用内更新。
  * 快捷键通过 input onKeyDown 捕获键盘事件，转换为 Electron Accelerator 格式后 IPC 注册。
  */
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import type { AppSettings, WidgetDisplayMode } from "./types/todo";
+import type { AppSettings, WidgetDisplayMode, WidgetTheme } from "./types/todo";
+import { WIDGET_OPACITY_MAX, WIDGET_OPACITY_MIN } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
 
 const formatShortcut = (shortcut?: string, fallback = "CommandOrControl+2"): string =>
@@ -134,16 +135,30 @@ export default function SettingsWindow(): React.ReactElement {
     setSettings(next);
   };
 
+  /** 切换浅色 / 深色；主进程广播后各窗口 AppearanceSync 会同步 CSS */
+  const updateTheme = async (theme: WidgetTheme): Promise<void> => {
+    const next = await window.todoApi.setTheme(theme);
+    setSettings(next);
+  };
+
+  /** 调节挂件卡片不透明度（0.5–1） */
+  const updateWidgetOpacity = async (opacity: number): Promise<void> => {
+    const next = await window.todoApi.setWidgetOpacity(opacity);
+    setSettings(next);
+  };
+
   const handleCheckForUpdates = async (): Promise<void> => {
     const status = await window.todoApi.checkForUpdates();
     setUpdateStatus(status);
   };
 
+  /** 用户确认后再下载（autoDownload=false） */
   const handleDownloadUpdate = async (): Promise<void> => {
     const status = await window.todoApi.downloadUpdate();
     setUpdateStatus(status);
   };
 
+  /** 「稍后」：清掉 available 状态，本次会话不再强提醒 */
   const handleDismissUpdate = async (): Promise<void> => {
     const status = await window.todoApi.dismissUpdate();
     setUpdateStatus(status);
@@ -206,6 +221,41 @@ export default function SettingsWindow(): React.ReactElement {
                 <option value="normal">普通组件</option>
                 <option value="desktop">固定在桌面上</option>
               </select>
+            </label>
+          </section>
+
+          <section className="settings-section">
+            <h2 className="settings-section-title">外观</h2>
+            <label className="settings-option">
+              <div>
+                <strong>主题</strong>
+                <span>浅色适合明亮壁纸，深色适合深色桌面。</span>
+              </div>
+              <select
+                className="settings-select"
+                value={settings?.theme ?? "light"}
+                disabled={!settings}
+                onChange={(event) => void updateTheme(event.target.value as WidgetTheme)}
+              >
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+              </select>
+            </label>
+            <label className="settings-option vertical">
+              <div>
+                <strong>挂件透明度</strong>
+                <span>当前 {Math.round((settings?.widgetOpacity ?? 0.92) * 100)}%，数值越低越通透。</span>
+              </div>
+              <input
+                className="settings-range"
+                type="range"
+                min={WIDGET_OPACITY_MIN}
+                max={WIDGET_OPACITY_MAX}
+                step={0.01}
+                value={settings?.widgetOpacity ?? 0.92}
+                disabled={!settings}
+                onChange={(event) => void updateWidgetOpacity(Number(event.target.value))}
+              />
             </label>
           </section>
 

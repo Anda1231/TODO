@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, updateTodoTitle } from "../src/data/todoStore";
-import type { TodoDatabase } from "../src/types/todo";
+import {
+  normalizeDueDays,
+  normalizeTodoSubtasks,
+  normalizeTodoTags,
+  normalizeWidgetOpacity,
+  normalizeWidgetTheme,
+  type TodoDatabase
+} from "../src/types/todo";
 
 const database: TodoDatabase = {
   version: 1,
@@ -9,7 +16,9 @@ const database: TodoDatabase = {
     displayMode: "desktop",
     launchAtLogin: false,
     shortcut: "CommandOrControl+2",
-    showWidgetShortcut: "CommandOrControl+1"
+    showWidgetShortcut: "CommandOrControl+1",
+    theme: "light",
+    widgetOpacity: 0.92
   },
   todos: [
     {
@@ -18,7 +27,9 @@ const database: TodoDatabase = {
       createdAt: "2026-07-01T08:00:00.000Z",
       scheduledDate: "2026-07-01",
       status: "active",
-      rating: 2
+      rating: 2,
+      tags: ["工作"],
+      subtasks: [{ id: "s1", title: "子项", done: false }]
     },
     {
       id: "completed-1",
@@ -27,7 +38,9 @@ const database: TodoDatabase = {
       scheduledDate: "2026-07-01",
       completedAt: "2026-07-01T10:00:00.000Z",
       status: "completed",
-      rating: 1
+      rating: 1,
+      tags: [],
+      subtasks: []
     }
   ]
 };
@@ -69,7 +82,9 @@ describe("todo daily refresh", () => {
           createdAt: "2026-07-01T08:00:00.000Z",
           scheduledDate: "2026-07-01",
           status: "active",
-          rating: 1
+          rating: 1,
+          tags: [],
+          subtasks: []
         },
         {
           id: "high",
@@ -77,7 +92,9 @@ describe("todo daily refresh", () => {
           createdAt: "2026-07-01T09:00:00.000Z",
           scheduledDate: "2026-07-01",
           status: "active",
-          rating: 5
+          rating: 5,
+          tags: [],
+          subtasks: []
         }
       ]
     };
@@ -93,5 +110,37 @@ describe("todo daily refresh", () => {
     expect(updated.todos.find((todo) => todo.id === "active-1")?.title).toBe("更新后的标题");
     expect(updateTodoTitle(database, "active-1", "   ")).toBe(database);
     expect(updateTodoTitle(database, "missing", "新标题")).toBe(database);
+  });
+});
+
+describe("todo tags and appearance normalize", () => {
+  it("normalizes tags to presets only and dedupes", () => {
+    expect(normalizeTodoTags([" 工作 ", "工作", "", "自定义", "学习", 1])).toEqual(["工作", "学习"]);
+  });
+
+  it("normalizes subtasks and drops invalid entries", () => {
+    expect(
+      normalizeTodoSubtasks([
+        { id: "a", title: " 完成文档 ", done: true },
+        { id: "", title: "无效" },
+        { id: "b", title: "" },
+        null
+      ])
+    ).toEqual([{ id: "a", title: "完成文档", done: true }]);
+  });
+
+  it("normalizes theme and opacity", () => {
+    expect(normalizeWidgetTheme("dark")).toBe("dark");
+    expect(normalizeWidgetTheme("neon")).toBe("light");
+    expect(normalizeWidgetOpacity(0.3)).toBe(0.5);
+    expect(normalizeWidgetOpacity(1.2)).toBe(1);
+    expect(normalizeWidgetOpacity(0.876)).toBe(0.88);
+  });
+
+  it("normalizes dueDays and drops invalid values", () => {
+    expect(normalizeDueDays(3)).toBe(3);
+    expect(normalizeDueDays(0)).toBeUndefined();
+    expect(normalizeDueDays("")).toBeUndefined();
+    expect(normalizeDueDays(999)).toBe(365);
   });
 });

@@ -5,7 +5,16 @@
  * 所有跨进程通信均走 ipcRenderer.invoke / ipcRenderer.on，通道名与 main.ts 中 ipcMain.handle 一一对应。
  */
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot, TodoUpdate, WidgetDisplayMode } from "../src/types/todo";
+import type {
+  AppSettings,
+  ShortcutRegistrationResult,
+  TodoCalendarDay,
+  TodoDraft,
+  TodoSnapshot,
+  TodoUpdate,
+  WidgetDisplayMode,
+  WidgetTheme
+} from "../src/types/todo";
 import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
 
 /** 渲染进程可调用的 API，经 contextBridge 安全暴露给 window.todoApi */
@@ -20,6 +29,18 @@ const api = {
   updateTodo: (id: string, update: TodoUpdate): Promise<TodoSnapshot> =>
     ipcRenderer.invoke("todos:update", id, update),
   setTodoRating: (id: string, rating: number): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:setRating", id, rating),
+  setTodoTags: (id: string, tags: string[]): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:setTags", id, tags),
+  /** 设置预计完成天数；传 null 清除 */
+  setTodoDueDays: (id: string, dueDays: number | null): Promise<TodoSnapshot> =>
+    ipcRenderer.invoke("todos:setDueDays", id, dueDays),
+  addTodoSubtask: (id: string, title: string): Promise<TodoSnapshot> =>
+    ipcRenderer.invoke("todos:addSubtask", id, title),
+  toggleTodoSubtask: (id: string, subtaskId: string): Promise<TodoSnapshot> =>
+    ipcRenderer.invoke("todos:toggleSubtask", id, subtaskId),
+  updateTodoSubtask: (id: string, subtaskId: string, title: string): Promise<TodoSnapshot> =>
+    ipcRenderer.invoke("todos:updateSubtask", id, subtaskId, title),
+  deleteTodoSubtask: (id: string, subtaskId: string): Promise<TodoSnapshot> =>
+    ipcRenderer.invoke("todos:deleteSubtask", id, subtaskId),
   /** 按年月查询已完成待办，供日历视图使用 */
   getCalendar: (year: number, month: number): Promise<TodoCalendarDay[]> =>
     ipcRenderer.invoke("todos:getCalendar", year, month),
@@ -29,6 +50,8 @@ const api = {
   setLaunchAtLogin: (enabled: boolean): Promise<AppSettings> => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   setDisplayMode: (displayMode: WidgetDisplayMode): Promise<AppSettings> =>
     ipcRenderer.invoke("settings:setDisplayMode", displayMode),
+  setTheme: (theme: WidgetTheme): Promise<AppSettings> => ipcRenderer.invoke("settings:setTheme", theme),
+  setWidgetOpacity: (opacity: number): Promise<AppSettings> => ipcRenderer.invoke("settings:setWidgetOpacity", opacity),
   setShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> => ipcRenderer.invoke("settings:setShortcut", shortcut),
   setShowWidgetShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> =>
     ipcRenderer.invoke("settings:setShowWidgetShortcut", shortcut),

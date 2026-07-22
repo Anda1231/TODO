@@ -20,7 +20,14 @@ import {
 } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
 import { checkForUpdates, dismissUpdate, downloadUpdate, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
-import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
+import type {
+  ShortcutRegistrationResult,
+  TodoDraft,
+  TodoUpdate,
+  WidgetDisplayMode,
+  WidgetTheme,
+  WindowBounds
+} from "../src/types/todo";
 
 /** 桌面挂件窗口（无边框透明，可贴桌面或悬浮） */
 let widgetWindow: BrowserWindow | null = null;
@@ -772,6 +779,36 @@ const registerIpc = (): void => {
     broadcastSnapshot();
     return snapshot;
   });
+  ipcMain.handle("todos:setTags", (_event, id: string, tags: string[]) => {
+    const snapshot = store.setTodoTags(id, tags);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:setDueDays", (_event, id: string, dueDays: number | null) => {
+    const snapshot = store.setTodoDueDays(id, dueDays);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:addSubtask", (_event, id: string, title: string) => {
+    const snapshot = store.addTodoSubtask(id, title);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:toggleSubtask", (_event, id: string, subtaskId: string) => {
+    const snapshot = store.toggleTodoSubtask(id, subtaskId);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:updateSubtask", (_event, id: string, subtaskId: string, title: string) => {
+    const snapshot = store.updateTodoSubtask(id, subtaskId, title);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:deleteSubtask", (_event, id: string, subtaskId: string) => {
+    const snapshot = store.deleteTodoSubtask(id, subtaskId);
+    broadcastSnapshot();
+    return snapshot;
+  });
   ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => store.getCalendar(year, month));
   ipcMain.handle("settings:get", () => {
     syncLoginSetting();
@@ -782,6 +819,8 @@ const registerIpc = (): void => {
     return applySettings(store.setLaunchAtLogin(enabled));
   });
   ipcMain.handle("settings:setDisplayMode", (_event, displayMode: WidgetDisplayMode) => setWidgetDisplayMode(displayMode));
+  ipcMain.handle("settings:setTheme", (_event, theme: WidgetTheme) => applySettings(store.setTheme(theme)));
+  ipcMain.handle("settings:setWidgetOpacity", (_event, opacity: number) => applySettings(store.setWidgetOpacity(opacity)));
   ipcMain.handle("settings:setShortcut", (_event, shortcut: string) => updateShortcut("quickAdd", shortcut));
   ipcMain.handle("settings:setShowWidgetShortcut", (_event, shortcut: string) => updateShortcut("showWidget", shortcut));
   ipcMain.handle("windows:openAddTodo", () => createAddTodoWindow());

@@ -12,7 +12,25 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { app } from "electron";
 import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, todayKey, updateTodoTitle } from "../src/data/todoStore";
-import type { TodoCalendarDay, TodoDatabase, TodoDraft, TodoSnapshot, TodoUpdate, WidgetDisplayMode } from "../src/types/todo";
+import {
+  normalizeDueDays,
+  normalizeTodoRating,
+  normalizeTodoSubtasks,
+  normalizeTodoTags,
+  normalizeWidgetOpacity,
+  normalizeWidgetTheme
+} from "../src/types/todo";
+import type {
+  AppSettings,
+  TodoCalendarDay,
+  TodoDatabase,
+  TodoDraft,
+  TodoSnapshot,
+  TodoSubtask,
+  TodoUpdate,
+  WidgetDisplayMode,
+  WidgetTheme
+} from "../src/types/todo";
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -25,12 +43,27 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
     displayMode: "normal",
     launchAtLogin: false,
     shortcut: "CommandOrControl+2",
-    showWidgetShortcut: "CommandOrControl+1"
+    showWidgetShortcut: "CommandOrControl+1",
+    theme: "light",
+    widgetOpacity: 0.92
   }
 });
 
 const normalizeDisplayMode = (displayMode: unknown): WidgetDisplayMode =>
   displayMode === "desktop" ? "desktop" : "normal";
+
+const normalizeTodoRecord = (todo: TodoDatabase["todos"][number]): TodoDatabase["todos"][number] => {
+  // 丢弃旧版 dueAt（具体时刻），只保留/规范化 dueDays
+  const rest = { ...todo } as TodoDatabase["todos"][number] & { dueAt?: unknown };
+  delete rest.dueAt;
+  return {
+    ...rest,
+    rating: normalizeTodoRating(rest.rating),
+    tags: normalizeTodoTags(rest.tags),
+    subtasks: normalizeTodoSubtasks(rest.subtasks),
+    dueDays: normalizeDueDays(rest.dueDays)
+  };
+};
 
 /**
  * 主进程待办存储：唯一读写磁盘的位置，所有 UI 变更经 IPC 调用此类方法。
@@ -67,7 +100,9 @@ export class TodoStore {
       createdAt: timestamp,
       scheduledDate: todayKey(),
       status: "active",
-      rating: 1
+      rating: 1,
+      tags: [],
+      subtasks: []
     });
     this.save();
     return this.getSnapshot();
@@ -118,10 +153,84 @@ export class TodoStore {
   setTodoRating(id: string, rating: number): TodoSnapshot {
     const todo = this.database.todos.find((item) => item.id === id);
     if (todo) {
-      todo.rating = Math.min(5, Math.max(1, Math.round(rating)));
+      todo.rating = normalizeTodoRating(rating);
       this.save();
     }
 
+    return this.getSnapshot();
+  }
+
+  /** 覆盖写入标签列表（会再走 normalize：去重、截断） */
+  setTodoTags(id: string, tags: string[]): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    if (todo) {
+      todo.tags = normalizeTodoTags(tags);
+      this.save();
+    }
+    return this.getSnapshot();
+  }
+
+  /** 设置或清空预计完成天数；传 null 表示清除 */
+  setTodoDueDays(id: string, dueDays: number | null): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    if (todo) {
+      const normalized = normalizeDueDays(dueDays);
+      if (normalized === undefined) {
+        delete todo.dueDays;
+      } else {
+        todo.dueDays = normalized;
+      }
+      this.save();
+    }
+    return this.getSnapshot();
+  }
+
+  /** 追加一条子任务；空标题或已满 20 条则忽略 */
+  addTodoSubtask(id: string, title: string): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    const trimmed = title.trim();
+    if (!todo || !trimmed || todo.subtasks.length >= 20) {
+      return this.getSnapshot();
+    }
+
+    todo.subtasks = normalizeTodoSubtasks([
+      ...todo.subtasks,
+      { id: randomUUID(), title: trimmed, done: false } satisfies TodoSubtask
+    ]);
+    this.save();
+    return this.getSnapshot();
+  }
+
+  /** 切换子任务完成状态 */
+  toggleTodoSubtask(id: string, subtaskId: string): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    const subtask = todo?.subtasks.find((item) => item.id === subtaskId);
+    if (subtask) {
+      subtask.done = !subtask.done;
+      this.save();
+    }
+    return this.getSnapshot();
+  }
+
+  /** 重命名子任务；空标题忽略 */
+  updateTodoSubtask(id: string, subtaskId: string, title: string): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    const subtask = todo?.subtasks.find((item) => item.id === subtaskId);
+    const trimmed = title.trim();
+    if (subtask && trimmed) {
+      subtask.title = trimmed.slice(0, 80);
+      this.save();
+    }
+    return this.getSnapshot();
+  }
+
+  /** 删除指定子任务 */
+  deleteTodoSubtask(id: string, subtaskId: string): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    if (todo) {
+      todo.subtasks = todo.subtasks.filter((item) => item.id !== subtaskId);
+      this.save();
+    }
     return this.getSnapshot();
   }
 
@@ -148,30 +257,44 @@ export class TodoStore {
     this.save();
   }
 
-  getSettings(): TodoDatabase["settings"] {
+  getSettings(): AppSettings {
     return this.database.settings;
   }
 
-  setShortcut(shortcut: string): TodoDatabase["settings"] {
+  setShortcut(shortcut: string): AppSettings {
     this.database.settings.shortcut = shortcut;
     this.save();
     return this.database.settings;
   }
 
-  setShowWidgetShortcut(shortcut: string): TodoDatabase["settings"] {
+  setShowWidgetShortcut(shortcut: string): AppSettings {
     this.database.settings.showWidgetShortcut = shortcut;
     this.save();
     return this.database.settings;
   }
 
-  setDisplayMode(displayMode: TodoDatabase["settings"]["displayMode"]): TodoDatabase["settings"] {
+  setDisplayMode(displayMode: AppSettings["displayMode"]): AppSettings {
     this.database.settings.displayMode = displayMode;
     this.save();
     return this.database.settings;
   }
 
-  setLaunchAtLogin(launchAtLogin: boolean): TodoDatabase["settings"] {
+  setLaunchAtLogin(launchAtLogin: boolean): AppSettings {
     this.database.settings.launchAtLogin = launchAtLogin;
+    this.save();
+    return this.database.settings;
+  }
+
+  /** 界面主题：light | dark */
+  setTheme(theme: WidgetTheme): AppSettings {
+    this.database.settings.theme = normalizeWidgetTheme(theme);
+    this.save();
+    return this.database.settings;
+  }
+
+  /** 挂件卡片不透明度，clamp 到 0.5–1 */
+  setWidgetOpacity(opacity: number): AppSettings {
+    this.database.settings.widgetOpacity = normalizeWidgetOpacity(opacity);
     this.save();
     return this.database.settings;
   }
@@ -179,26 +302,24 @@ export class TodoStore {
   /**
    * 从磁盘加载 JSON。
    * 合并策略：以 createEmptyDatabase 为底，覆盖文件字段，settings/todos 做浅合并；
-   * rating 缺失或非法时默认为 1。
+   * 缺失的 tags/subtasks/theme/opacity 会补默认值。
    */
   private load(): TodoDatabase {
     try {
       const raw = readFileSync(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as TodoDatabase;
+      const defaults = createEmptyDatabase();
       return {
-        ...createEmptyDatabase(),
+        ...defaults,
         ...parsed,
         settings: {
-          ...createEmptyDatabase().settings,
+          ...defaults.settings,
           ...parsed.settings,
-          displayMode: normalizeDisplayMode(parsed.settings?.displayMode)
+          displayMode: normalizeDisplayMode(parsed.settings?.displayMode),
+          theme: normalizeWidgetTheme(parsed.settings?.theme),
+          widgetOpacity: normalizeWidgetOpacity(parsed.settings?.widgetOpacity)
         },
-        todos: Array.isArray(parsed.todos)
-          ? parsed.todos.map((todo) => ({
-              ...todo,
-              rating: typeof todo.rating === "number" ? Math.min(5, Math.max(1, Math.round(todo.rating))) : 1
-            }))
-          : []
+        todos: Array.isArray(parsed.todos) ? parsed.todos.map((todo) => normalizeTodoRecord(todo)) : []
       };
     } catch {
       return createEmptyDatabase();

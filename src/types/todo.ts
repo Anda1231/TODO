@@ -3,13 +3,89 @@ export const TODO_RATING_MIN = 1;
 export const TODO_RATING_MAX = 5;
 export const TODO_RATING_DEFAULT = 1;
 
+/** 挂件卡片透明度范围 */
+export const WIDGET_OPACITY_MIN = 0.5;
+export const WIDGET_OPACITY_MAX = 1;
+export const WIDGET_OPACITY_DEFAULT = 0.92;
+
+/** 内置标签建议（可自由添加其它名称） */
+export const PRESET_TAGS = ["工作", "生活", "学习", "紧急"] as const;
+
+export type TodoStatus = "active" | "completed";
+
+/** 待办下的子任务勾选项 */
+export type TodoSubtask = {
+  id: string;
+  title: string;
+  done: boolean;
+};
+
+/** 界面主题 */
+export type WidgetTheme = "light" | "dark";
+
 /** 将评分规范化为 1–5 整数；undefined/NaN 时使用默认值 */
 export const normalizeTodoRating = (rating?: number): number => {
   if (rating === undefined || !Number.isFinite(rating)) return TODO_RATING_DEFAULT;
   return Math.min(TODO_RATING_MAX, Math.max(TODO_RATING_MIN, Math.round(rating)));
 };
 
-export type TodoStatus = "active" | "completed";
+/** 规范化标签列表：仅保留预设标签，去重 */
+export const normalizeTodoTags = (tags?: unknown): string[] => {
+  if (!Array.isArray(tags)) return [];
+  const allowed = new Set<string>(PRESET_TAGS);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of tags) {
+    if (typeof raw !== "string") continue;
+    const tag = raw.trim();
+    if (!tag || !allowed.has(tag) || seen.has(tag)) continue;
+    seen.add(tag);
+    result.push(tag);
+  }
+  return result;
+};
+
+/** 规范化子任务列表 */
+export const normalizeTodoSubtasks = (subtasks?: unknown): TodoSubtask[] => {
+  if (!Array.isArray(subtasks)) return [];
+  return subtasks
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Partial<TodoSubtask>;
+      const id = typeof record.id === "string" && record.id ? record.id : "";
+      const title = typeof record.title === "string" ? record.title.trim() : "";
+      if (!id || !title) return null;
+      return {
+        id,
+        title: title.slice(0, 80),
+        done: Boolean(record.done)
+      } satisfies TodoSubtask;
+    })
+    .filter((item): item is TodoSubtask => item !== null)
+    .slice(0, 20);
+};
+
+export const normalizeWidgetOpacity = (opacity?: unknown): number => {
+  if (typeof opacity !== "number" || !Number.isFinite(opacity)) return WIDGET_OPACITY_DEFAULT;
+  const clamped = Math.min(WIDGET_OPACITY_MAX, Math.max(WIDGET_OPACITY_MIN, opacity));
+  return Math.round(clamped * 100) / 100;
+};
+
+export const normalizeWidgetTheme = (theme?: unknown): WidgetTheme => (theme === "dark" ? "dark" : "light");
+
+/** 预计完成天数范围 */
+export const DUE_DAYS_MIN = 1;
+export const DUE_DAYS_MAX = 365;
+
+/** 规范化预计完成天数；空/非法视为未设置 */
+export const normalizeDueDays = (dueDays?: unknown): number | undefined => {
+  if (dueDays === null || dueDays === undefined || dueDays === "") return undefined;
+  const value = typeof dueDays === "number" ? dueDays : Number(dueDays);
+  if (!Number.isFinite(value)) return undefined;
+  const days = Math.round(value);
+  if (days < DUE_DAYS_MIN) return undefined;
+  return Math.min(DUE_DAYS_MAX, days);
+};
 
 /** 单条待办记录，持久化在 todos.json 的 todos 数组中 */
 export type Todo = {
@@ -21,9 +97,15 @@ export type Todo = {
   scheduledDate: string;
   /** 完成时刻，仅 status=completed 时有值 */
   completedAt?: string;
+  /** 预计几天完成（正整数天数），可选 */
+  dueDays?: number;
   status: TodoStatus;
   /** 紧急程度 1–5，影响列表排序 */
   rating: number;
+  /** 标签名称列表 */
+  tags: string[];
+  /** 子任务列表 */
+  subtasks: TodoSubtask[];
 };
 
 /** 挂件窗口的位置与尺寸，持久化在 settings.widgetBounds */
@@ -70,6 +152,10 @@ export type AppSettings = {
   shortcut: string;
   /** 全局快捷键：临时显示桌面挂件 */
   showWidgetShortcut: string;
+  /** 界面主题 */
+  theme: WidgetTheme;
+  /** 挂件卡片不透明度 0.5–1 */
+  widgetOpacity: number;
 };
 
 /** 修改快捷键后 IPC 返回的结果，含是否注册成功及实际生效的组合 */

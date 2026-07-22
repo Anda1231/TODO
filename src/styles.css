@@ -1,10 +1,45 @@
+/* 设计变量：主题由 html[data-theme] 切换，透明度由 --widget-opacity 注入 */
 :root {
-  color: #1f2937;
+  --widget-opacity: 0.92;
+  --surface: rgba(255, 255, 255, var(--widget-opacity));
+  --surface-solid: #ffffff;
+  --surface-muted: rgba(248, 250, 252, 0.92);
+  --surface-soft: #f8fafc;
+  --border: rgba(255, 255, 255, 0.55);
+  --border-strong: rgba(148, 163, 184, 0.22);
+  --text: #1f2937;
+  --text-strong: #0f172a;
+  --text-muted: #64748b;
+  --accent: #0369a1;
+  --accent-soft: #e0f2fe;
+  --accent-border: #bae6fd;
+  --danger-soft: #fee2e2;
+  --input-bg: #ffffff;
+  --chip-bg: #f0f9ff;
+  color: var(--text);
   background: transparent;
   font-family:
     Inter, "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+:root[data-theme="dark"] {
+  --surface: rgba(15, 23, 42, var(--widget-opacity));
+  --surface-solid: #0f172a;
+  --surface-muted: rgba(30, 41, 59, 0.92);
+  --surface-soft: #1e293b;
+  --border: rgba(148, 163, 184, 0.28);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --text: #e2e8f0;
+  --text-strong: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-soft: #0c4a6e;
+  --accent-border: #0369a1;
+  --danger-soft: #7f1d1d;
+  --input-bg: #1e293b;
+  --chip-bg: #164e63;
 }
 
 * {
@@ -86,10 +121,11 @@ select {
 .quick-add-card {
   width: 100%;
   height: 100vh;
-  border: 1px solid rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--border);
   border-radius: 28px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--surface);
   box-shadow: none;
+  color: var(--text);
 }
 
 .settings-window-card {
@@ -97,7 +133,8 @@ select {
   height: 100vh;
   border: 0;
   border-radius: 28px;
-  background: #ffffff;
+  background: var(--surface-solid);
+  color: var(--text);
   box-shadow: none;
   overflow: hidden;
   isolation: isolate;
@@ -108,7 +145,8 @@ select {
   height: 100vh;
   border: 0;
   border-radius: 28px;
-  background: #ffffff;
+  background: var(--surface-solid);
+  color: var(--text);
   box-shadow: none;
   overflow: hidden;
   isolation: isolate;
@@ -117,7 +155,7 @@ select {
 .panel-header,
 .calendar-header {
   padding-bottom: 16px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .panel-header-actions {
@@ -156,7 +194,7 @@ select {
 
 .eyebrow {
   margin: 0 0 4px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -165,7 +203,7 @@ select {
 h1,
 h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--text-strong);
 }
 
 h1 {
@@ -248,9 +286,10 @@ h2 {
 .quick-form input,
 .quick-add-card input {
   width: 100%;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--accent-border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--input-bg);
+  color: var(--text-strong);
   outline: none;
   padding: 12px 14px;
 }
@@ -270,7 +309,7 @@ h2 {
 }
 
 .summary-row {
-  color: #475569;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -291,17 +330,336 @@ h2 {
 
 .todo-item,
 .detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 16px;
+  background: var(--surface-muted);
+  padding: 8px 10px;
+}
+
+.todo-item-main,
+.detail-item {
   display: grid;
   grid-template-columns: auto auto 1fr auto;
   align-items: start;
-  gap: 10px;
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.92);
-  padding: 10px;
+  gap: 8px;
+}
+
+.todo-item-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .detail-item {
   grid-template-columns: 1fr auto;
+}
+
+.tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag-filter-chip {
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.tag-filter-chip.active,
+.tag-filter-chip:hover {
+  background: var(--accent-soft);
+}
+
+.todo-tags-chips,
+.todo-tags-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.todo-tag {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+}
+
+.todo-tag-work {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.todo-tag-life {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.todo-tag-study {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.todo-tag-urgent {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+:root[data-theme="dark"] .todo-tag-work {
+  background: #0c4a6e;
+  color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .todo-tag-life {
+  background: #14532d;
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .todo-tag-study {
+  background: #78350f;
+  color: #fcd34d;
+}
+
+:root[data-theme="dark"] .todo-tag-urgent {
+  background: #881337;
+  color: #fda4af;
+}
+
+.todo-tag.selected {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.todo-tags-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.todo-tags-custom {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+.todo-tags-custom input,
+.todo-subtask-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.todo-tags-custom button {
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.todo-context-days-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.todo-due-days-label {
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.todo-context-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.todo-context-icon-button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.todo-context-icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.todo-context-icon-button:hover,
+.todo-context-icon-button.open,
+.todo-context-icon-button.has-value {
+  color: var(--accent);
+}
+
+.todo-context-icon-button:hover,
+.todo-context-icon-button.open {
+  background: var(--accent-soft);
+}
+
+.todo-due-days-editor {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.todo-due-days-input {
+  width: 2.6em;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  padding: 2px 4px;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.todo-due-days-input::-webkit-outer-spin-button,
+.todo-due-days-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.todo-due-days-input:focus {
+  border-color: var(--accent);
+}
+
+.todo-due-confirm,
+.todo-due-clear {
+  border: 0;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.todo-due-confirm {
+  background: #0284c7;
+  color: white;
+  cursor: pointer;
+  min-height: 24px;
+}
+
+.todo-due-clear {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.todo-context-subtask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.todo-subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 2px;
+}
+
+.todo-subtasks-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 0;
+}
+
+.todo-subtasks-chevron {
+  width: 12px;
+  height: 12px;
+}
+
+.todo-subtasks-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.todo-subtask {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.todo-subtask.done .todo-subtask-title {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.todo-subtask-check {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+}
+
+.todo-subtask.done .todo-subtask-check {
+  background: var(--accent);
+}
+
+.todo-subtask-title {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.todo-subtask-delete {
+  width: 24px;
+  height: 24px;
+}
+
+.todo-subtask-delete .button-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .todo-item-actions {
@@ -342,10 +700,10 @@ h2 {
 .todo-title-input {
   width: 100%;
   min-width: 0;
-  border: 1px solid #bae6fd;
+  border: 1px solid var(--accent-border);
   border-radius: 12px;
-  background: white;
-  color: #0f172a;
+  background: var(--input-bg);
+  color: var(--text-strong);
   font: inherit;
   padding: 6px 10px;
 }
@@ -419,34 +777,45 @@ h2 {
   background: #fffbeb;
 }
 
-.todo-info-menu {
+.todo-context-menu {
   position: fixed;
   z-index: 40;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: max-content;
-  max-width: calc(100vw - 16px);
-  border: 1px solid #bae6fd;
+  gap: 6px;
+  width: min(200px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  border: 1px solid var(--accent-border);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.98);
-  padding: 10px 12px;
+  background: var(--surface-solid);
+  padding: 8px 10px;
   pointer-events: auto;
-  color: #0f172a;
+  color: var(--text-strong);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  -webkit-app-region: no-drag;
 }
 
-.todo-info-menu strong {
-  font-size: 13px;
+.todo-context-menu button,
+.todo-context-menu input {
+  -webkit-app-region: no-drag;
+}
+
+.todo-context-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.todo-context-meta strong {
+  font-size: 12px;
   font-weight: 650;
   line-height: 1.35;
-  white-space: nowrap;
 }
 
 .todo-info-days {
-  font-size: 12px;
-  color: #0369a1;
-  white-space: nowrap;
+  font-size: 11px;
+  color: var(--accent);
 }
 
 .check-button {
@@ -485,7 +854,7 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
+  border-top: 1px solid var(--border-strong);
   padding-top: 12px;
 }
 
@@ -501,9 +870,14 @@ h2 {
   white-space: nowrap;
 }
 
+:root[data-theme="dark"] .completed-item {
+  background: rgba(20, 83, 45, 0.72);
+  color: #86efac;
+}
+
 .widget-footer {
   align-items: flex-start;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -560,7 +934,7 @@ h2 {
 
 .settings-section-title {
   margin: 0;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -572,17 +946,17 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-strong);
   border-radius: 18px;
-  background: #ffffff;
-  color: #334155;
+  background: var(--surface-soft);
+  color: var(--text);
   padding: 16px;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .settings-option:hover {
-  border-color: #bae6fd;
-  background: #f8fcff;
+  border-color: var(--accent-border);
+  background: var(--chip-bg);
 }
 
 .settings-option.vertical {
@@ -597,12 +971,12 @@ h2 {
 }
 
 .settings-option strong {
-  color: #0f172a;
+  color: var(--text-strong);
 }
 
 .settings-option span,
 .settings-message {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -614,12 +988,18 @@ h2 {
   cursor: pointer;
 }
 
+.settings-range {
+  width: 100%;
+  accent-color: #0284c7;
+  cursor: pointer;
+}
+
 .settings-select {
   min-width: 148px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--accent-border);
   border-radius: 14px;
-  background: #f0f9ff;
-  color: #0369a1;
+  background: var(--chip-bg);
+  color: var(--accent);
   outline: none;
   padding: 9px 12px;
   cursor: pointer;
@@ -992,4 +1372,110 @@ h2 {
   padding: 6px 10px;
   background: #e0f2fe;
   color: #0369a1;
+}
+
+/* 日历暗色：降低刺眼亮底，改用深色表面 + 柔和强调色 */
+:root[data-theme="dark"] .calendar-month-picker,
+:root[data-theme="dark"] .calendar-today-button {
+  border-color: var(--accent-border);
+  background: var(--chip-bg);
+  color: var(--accent);
+}
+
+:root[data-theme="dark"] .calendar-month-select {
+  color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .calendar-month-select:hover,
+:root[data-theme="dark"] .calendar-month-select:focus,
+:root[data-theme="dark"] .calendar-today-button:hover,
+:root[data-theme="dark"] .calendar-today-button:focus {
+  background: #0c4a6e;
+  color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .calendar-month-label,
+:root[data-theme="dark"] .weekday,
+:root[data-theme="dark"] .day-detail-date {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .calendar-scroll-select-menu {
+  border-color: var(--accent-border);
+  background: var(--surface-solid);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme="dark"] .calendar-scroll-select-option {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .calendar-scroll-select-option:hover,
+:root[data-theme="dark"] .calendar-scroll-select-option.selected,
+:root[data-theme="dark"] .calendar-scroll-select-option.focused {
+  background: #0c4a6e;
+  color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .calendar-day {
+  border-color: #334155;
+  background: #1e293b;
+  color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .calendar-day:hover:not(.selected) {
+  border-color: #0369a1;
+  background: #164e63;
+}
+
+:root[data-theme="dark"] .calendar-day.today span {
+  background: #0c4a6e;
+  color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .calendar-day.has-data {
+  background: #14532d;
+  border-color: #166534;
+}
+
+:root[data-theme="dark"] .calendar-day.has-data:hover:not(.selected) {
+  background: #166534;
+  border-color: #22c55e;
+}
+
+:root[data-theme="dark"] .calendar-day strong {
+  background: #166534;
+  color: #bbf7d0;
+}
+
+:root[data-theme="dark"] .calendar-day.selected {
+  border-color: #38bdf8;
+  background: #0c4a6e;
+}
+
+:root[data-theme="dark"] .day-detail {
+  border-color: #334155;
+  background: #1e293b;
+}
+
+:root[data-theme="dark"] .day-detail .empty-state {
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .day-detail .detail-item {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .day-detail .detail-item .todo-title-button {
+  color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .day-detail .detail-item .todo-title-button:hover {
+  color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .day-detail .detail-item button:last-child {
+  background: #0c4a6e;
+  color: #7dd3fc;
 }
