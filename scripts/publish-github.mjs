@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./load-env.mjs";
@@ -125,23 +125,81 @@ const getRemoteAssets = () => {
   return assets;
 };
 
+/** 取版本号更小的最近一个 v* tag，作为「上一版本」 */
+const getPreviousTag = () => {
+  const result = spawnSync("git", ["tag", "-l", "v*", "--sort=-version:refname"], {
+    cwd: root,
+    encoding: "utf8",
+    windowsHide: true
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`读取 git tag 失败: ${result.stderr || result.stdout}`);
+  }
+
+  return (
+    result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((name) => name && name !== tag) ?? null
+  );
+};
+
+/**
+ * 用上一版本 tag..HEAD 的提交说明生成 Release 正文。
+ * 设置页会展示这份日志，故保持「标题 + 列表」结构便于解析。
+ */
+const buildReleaseNotesFromCommits = () => {
+  const previousTag = getPreviousTag();
+  const range = previousTag ? `${previousTag}..HEAD` : "HEAD";
+  const result = spawnSync(
+    "git",
+    ["log", range, "--pretty=format:%s", "--no-merges"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true
+    }
+  );
+
+  if (result.status !== 0) {
+    throw new Error(`读取提交记录失败: ${result.stderr || result.stdout}`);
+  }
+
+  const subjects = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const title = previousTag ? `相较于 ${previousTag}` : "更新内容";
+  if (subjects.length === 0) {
+    return `${title}\n- 无新的提交说明\n`;
+  }
+
+  return `${title}\n${subjects.map((subject) => `- ${subject}`).join("\n")}\n`;
+};
+
 const ensureRelease = () => {
   if (ghExists(["release", "view", tag, "--repo", repoSlug])) {
     return;
   }
 
-  const notesFile = join(root, "RELEASE_NOTES.md");
-  const createArgs = ["release", "create", tag, "--repo", repoSlug, "--title", version];
+  const notes = buildReleaseNotesFromCommits();
+  const notesFile = join(releaseDir, "RELEASE_NOTES.generated.md");
+  writeFileSync(notesFile, notes, "utf8");
 
-  if (existsSync(notesFile) && readFileSync(notesFile, "utf8").trim()) {
-    createArgs.push("--notes-file", notesFile);
-    console.log(`使用 RELEASE_NOTES.md 作为更新日志`);
-  } else {
-    createArgs.push("--generate-notes");
-    console.log("未找到 RELEASE_NOTES.md（或内容为空），使用 GitHub 自动生成的提交说明");
-  }
+  const previousTag = getPreviousTag();
+  console.log(
+    previousTag
+      ? `使用 ${previousTag}..HEAD 的提交生成更新日志`
+      : "未找到上一版本 tag，使用全部提交生成更新日志"
+  );
+  console.log(notes);
 
-  runGh(createArgs, "创建 Release");
+  runGh(
+    ["release", "create", tag, "--repo", repoSlug, "--title", version, "--notes-file", notesFile],
+    "创建 Release"
+  );
 };
 
 const pickFilesToUpload = (remoteAssets) => {

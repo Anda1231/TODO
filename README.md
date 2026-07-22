@@ -72,9 +72,8 @@ npm run dist         # 打包安装版 + 便携版到 release/<version>/
 ### 发布到 GitHub Release
 
 1. 复制 `.env.example` 为 `.env`，填入 `GH_TOKEN`
-2. 编辑根目录 `RELEASE_NOTES.md`（会作为 Release 更新日志展示给用户）
-3. 安装并登录 [GitHub CLI](https://cli.github.com/)
-4. 执行：
+2. 安装并登录 [GitHub CLI](https://cli.github.com/)
+3. 执行（更新日志自动取「上一版本 tag → 当前」的提交说明）：
 
 ```bash
 npm run dist:publish
@@ -99,7 +98,6 @@ src/                # 渲染进程 UI
 scripts/            # 发布、生成 yml、桌面附着诊断
 tests/              # Vitest
 build/              # 应用图标等资源
-RELEASE_NOTES.md    # 发版更新日志（给用户看）
 ```
 
 ## 架构要点
@@ -107,7 +105,7 @@ RELEASE_NOTES.md    # 发版更新日志（给用户看）
 - 主进程是唯一写盘层；渲染进程通过 `window.todoApi`（preload + contextBridge）访问
 - 业务规则集中在 `src/data/todoStore.ts`，便于测试
 - 单实例运行；关掉所有窗口也不会退出，以便全局快捷键继续工作
-- 更新默认不自动下载：先展示 `RELEASE_NOTES.md` / Release 正文，用户确认后再下载
+- 更新默认不自动下载：先展示 Release 正文（由上一版本以来的提交生成），用户确认后再下载
 
 ## 许可证
 
