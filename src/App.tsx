@@ -1,9 +1,9 @@
 /**
  * 桌面挂件主界面（?view=widget）。
  *
- * 功能：今日待办列表、内联添加/编辑/完成/删除、紧急评分、
+ * 功能：今日待办列表、内联/弹窗编辑、完成/删除、紧急评分、
  * 标签与子任务、右键查看添加时间与已过天数、置顶切换、完成区预览、
- * 打开日历/设置/快捷添加窗口。
+ * 打开日历/设置/添加窗口（全局快捷键仍可唤起同一添加窗）。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
 import { Calendar, CalendarClock, ListTodo, Minus, Pin, Settings, Tag, Trash2, X } from "lucide-react";
@@ -92,12 +92,17 @@ const Icon = ({ name }: { name: IconName }): React.ReactElement => {
 
 export default function App(): React.ReactElement {
   const [snapshot, setSnapshot] = useState<TodoSnapshot>(emptySnapshot);
-  const [newTitle, setNewTitle] = useState("");
   /** 当前正在内联编辑的待办 id */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   /** Escape 取消编辑时会触发 blur，此 ref 阻止 blur 误保存 */
   const skipBlurSaveRef = useRef(false);
+  /**
+   * 标题被截断时用弹窗编辑（挂件窄、长文案内联输入体验差）。
+   * null=未打开；打开时与内联编辑互斥。
+   */
+  const [editModal, setEditModal] = useState<{ id: string; title: string } | null>(null);
+  const editModalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   /** null=未知，true/false=最近一次桌面附着结果 */
   const [desktopAttached, setDesktopAttached] = useState<boolean | null>(null);
@@ -246,24 +251,37 @@ export default function App(): React.ReactElement {
   }, [snapshot.activeTodos.length, tagFilter, visibleTodos.length]);
   const unpinLabel = settings?.displayMode === "desktop" ? "取消置顶，回到桌面固定" : "取消置顶，回到普通窗口";
 
-  const addTodo = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    const title = newTitle.trim();
-    if (!title) return;
-
-    const next = await window.todoApi.addTodo({ title });
-    setSnapshot(next);
-    setNewTitle("");
-  };
-
-  const startEdit = (todo: Todo): void => {
+  /** 标题完整显示时走内联编辑 */
+  const startInlineEdit = (todo: Todo): void => {
+    setEditModal(null);
     setEditingId(todo.id);
     setEditingTitle(todo.title);
+  };
+
+  /**
+   * 点击标题：若当前行被 line-clamp 截断则弹窗编辑，否则内联编辑。
+   * 用 scrollHeight > clientHeight 判断「不能完全显示」。
+   */
+  const handleTitleClick = (todo: Todo, event: React.MouseEvent<HTMLButtonElement>): void => {
+    const el = event.currentTarget;
+    const isTruncated = el.scrollHeight > el.clientHeight + 1;
+    if (isTruncated) {
+      setEditingId(null);
+      setEditingTitle("");
+      setContextMenu(null);
+      setEditModal({ id: todo.id, title: todo.title });
+      return;
+    }
+    startInlineEdit(todo);
   };
 
   const cancelEdit = (): void => {
     setEditingId(null);
     setEditingTitle("");
+  };
+
+  const closeEditModal = (): void => {
+    setEditModal(null);
   };
 
   const saveEdit = async (): Promise<void> => {
@@ -280,6 +298,21 @@ export default function App(): React.ReactElement {
     cancelEdit();
   };
 
+  /** 弹窗内保存标题；空标题视为取消 */
+  const saveEditModal = async (): Promise<void> => {
+    if (!editModal) return;
+
+    const title = editModal.title.trim();
+    if (!title) {
+      closeEditModal();
+      return;
+    }
+
+    const next = await window.todoApi.updateTodo(editModal.id, { title });
+    setSnapshot(next);
+    closeEditModal();
+  };
+
   const handleEditBlur = (): void => {
     if (skipBlurSaveRef.current) {
       skipBlurSaveRef.current = false;
@@ -287,6 +320,36 @@ export default function App(): React.ReactElement {
     }
     void saveEdit();
   };
+
+  /** 弹窗打开时聚焦并选中全文；Escape 关闭 */
+  useEffect(() => {
+    if (!editModal) return;
+
+    const timer = window.setTimeout(() => {
+      editModalTextareaRef.current?.focus();
+      editModalTextareaRef.current?.select();
+    }, 0);
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeEditModal();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [editModal?.id]);
+
+  /** 弹窗对应待办被删掉时自动关闭，避免对着幽灵数据编辑 */
+  useEffect(() => {
+    if (!editModal) return;
+    const stillExists = snapshot.activeTodos.some((todo) => todo.id === editModal.id);
+    if (!stillExists) closeEditModal();
+  }, [editModal, snapshot.activeTodos]);
 
   const handleWidgetMouseDown = (event: React.MouseEvent<HTMLElement>): void => {
     const target = event.target;
@@ -351,20 +414,11 @@ export default function App(): React.ReactElement {
           </div>
         </header>
 
-        <form className="quick-form no-drag" onSubmit={addTodo}>
-          <input
-            value={newTitle}
-            onChange={(event) => setNewTitle(event.target.value)}
-            placeholder="添加今天的待办..."
-            aria-label="添加今天的待办"
-          />
-          <button type="submit">添加</button>
-        </form>
-
         <div className="summary-row no-drag">
           <span>{remainingLabel}</span>
+          {/* 打开独立添加窗；全局快捷键仍走同一入口，不依赖挂件内输入框 */}
           <button type="button" onClick={() => window.todoApi.openAddTodo()}>
-            快捷添加
+            添加
           </button>
         </div>
 
@@ -451,7 +505,12 @@ export default function App(): React.ReactElement {
                         autoFocus
                       />
                     ) : (
-                      <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
+                      <button
+                        type="button"
+                        className="todo-title-button"
+                        title={todo.title}
+                        onClick={(event) => handleTitleClick(todo, event)}
+                      >
                         {todo.title}
                       </button>
                     )}
@@ -527,6 +586,56 @@ export default function App(): React.ReactElement {
               : `${formatShortcut(settings?.shortcut)} 呼出添加，托盘图标可显示组件`}
           </span>
         </footer>
+
+        {/* 长标题截断时的编辑弹窗；放在 card 内并 no-drag，避免拖拽区吞交互 */}
+        {editModal ? (
+          <div
+            className="todo-edit-modal-backdrop no-drag"
+            role="presentation"
+            onMouseDown={(event) => {
+              // 仅点遮罩关闭，点对话框本身不关
+              if (event.target === event.currentTarget) closeEditModal();
+            }}
+          >
+            <div className="todo-edit-modal" role="dialog" aria-modal="true" aria-label="编辑待办">
+              <header className="todo-edit-modal-header">
+                <h2>编辑待办</h2>
+                <button
+                  className="icon-button"
+                  type="button"
+                  title="关闭"
+                  aria-label="关闭"
+                  onClick={closeEditModal}
+                >
+                  <Icon name="quit" />
+                </button>
+              </header>
+              <textarea
+                ref={editModalTextareaRef}
+                className="todo-edit-modal-textarea"
+                value={editModal.title}
+                onChange={(event) => setEditModal({ ...editModal, title: event.target.value })}
+                onKeyDown={(event) => {
+                  // Ctrl/Cmd+Enter 保存；单独 Enter 允许换行草稿（标题本身会 trim）
+                  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                    event.preventDefault();
+                    void saveEditModal();
+                  }
+                }}
+                aria-label="待办标题"
+                rows={4}
+              />
+              <div className="todo-edit-modal-actions">
+                <button type="button" className="todo-edit-modal-cancel" onClick={closeEditModal}>
+                  取消
+                </button>
+                <button type="button" className="todo-edit-modal-save" onClick={() => void saveEditModal()}>
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* 放在 widget-card 内并标记 no-drag，避免透明窗拖拽区吞点击 */}
         {contextMenu && contextMenuTodo ? (

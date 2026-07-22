@@ -75,8 +75,7 @@ body[data-view="settings"] {
 .widget-footer,
 .calendar-layout,
 .settings-content,
-.panel-header-actions,
-.quick-form {
+.panel-header-actions {
   -webkit-app-region: no-drag;
 }
 
@@ -97,7 +96,8 @@ button {
 .no-drag,
 button,
 input,
-select {
+select,
+textarea {
   -webkit-app-region: no-drag;
 }
 
@@ -165,6 +165,7 @@ select {
 }
 
 .widget-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -277,13 +278,6 @@ h2 {
   line-height: 1;
 }
 
-.quick-form {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-.quick-form input,
 .quick-add-card input {
   width: 100%;
   border: 1px solid var(--accent-border);
@@ -294,23 +288,27 @@ h2 {
   padding: 12px 14px;
 }
 
-.quick-form input:focus,
 .quick-add-card input:focus {
   border-color: #38bdf8;
   box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
 }
 
-.quick-form button {
-  border: 0;
-  border-radius: 16px;
-  background: #0284c7;
-  color: white;
-  padding: 0 16px;
-}
-
 .summary-row {
+  min-width: 0;
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* 窄挂件时文案可收缩省略，避免挤掉「添加」 */
+.summary-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-row button {
+  flex-shrink: 0;
 }
 
 .todo-list {
@@ -674,10 +672,15 @@ h2 {
   color: inherit;
   font: inherit;
   min-width: 0;
+  width: 100%;
   text-align: left;
   padding: 0;
   cursor: pointer;
-  white-space: normal;
+  /* 最多两行；超出截断后点击走弹窗编辑 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.4;
@@ -685,6 +688,97 @@ h2 {
 
 .todo-title-button:hover {
   color: #0369a1;
+}
+
+/* 长标题编辑弹窗：遮罩盖住挂件内容，对话框用实色避免透明窗看不清 */
+.todo-edit-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.35);
+  border-radius: inherit;
+}
+
+.todo-edit-modal {
+  width: min(100%, 320px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.todo-edit-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.todo-edit-modal-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.todo-edit-modal-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: var(--input-bg);
+  color: var(--text-strong);
+  font: inherit;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.todo-edit-modal-textarea:focus {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+.todo-edit-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.todo-edit-modal-cancel,
+.todo-edit-modal-save {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.todo-edit-modal-cancel {
+  background: var(--surface-soft);
+  color: var(--text-muted);
+}
+
+.todo-edit-modal-cancel:hover {
+  color: var(--text);
+}
+
+.todo-edit-modal-save {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.todo-edit-modal-save:hover {
+  filter: brightness(0.97);
 }
 
 .todo-delete-button {

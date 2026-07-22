@@ -1,9 +1,11 @@
 /**
- * 全局快捷键唤起的快捷添加窗口（?view=add）。
+ * 添加待办窗口（?view=add）。
  *
+ * 可由挂件「添加」按钮或全局快捷键唤起。
  * 特点：失焦自动隐藏、Enter 提交后关闭、Escape 关闭、
  * 再次按快捷键时通过 quick-add:focus 事件重新聚焦输入框。
  */
+import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 
@@ -51,11 +53,17 @@ export default function AddTodoWindow(): React.ReactElement {
       <form className="quick-add-card" onSubmit={submit}>
         <header className="quick-add-header">
           <div>
-            <p className="eyebrow">快捷添加</p>
+            <p className="eyebrow">添加待办</p>
             <h1>新的待办事项</h1>
           </div>
-          <button className="icon-button no-drag" type="button" onClick={() => window.todoApi.closeCurrentWindow()}>
-            关闭
+          <button
+            className="icon-button danger-button no-drag"
+            type="button"
+            title="关闭"
+            aria-label="关闭"
+            onClick={() => window.todoApi.closeCurrentWindow()}
+          >
+            <X aria-hidden className="button-icon" strokeWidth={2} />
           </button>
         </header>
         <input
