@@ -98,7 +98,7 @@ export default function App(): React.ReactElement {
   /** Escape 取消编辑时会触发 blur，此 ref 阻止 blur 误保存 */
   const skipBlurSaveRef = useRef(false);
   /**
-   * 标题被截断时用弹窗编辑（挂件窄、长文案内联输入体验差）。
+   * 内联单行装不下完整标题时用弹窗编辑。
    * null=未打开；打开时与内联编辑互斥。
    */
   const [editModal, setEditModal] = useState<{ id: string; title: string } | null>(null);
@@ -259,13 +259,29 @@ export default function App(): React.ReactElement {
   };
 
   /**
-   * 点击标题：若当前行被 line-clamp 截断则弹窗编辑，否则内联编辑。
-   * 用 scrollHeight > clientHeight 判断「不能完全显示」。
+   * 点击标题：若内联单行输入装不下完整标题则弹窗，否则内联编辑。
+   * 列表仍可两行展示；这里单独按「单行宽度」判断编辑方式。
    */
   const handleTitleClick = (todo: Todo, event: React.MouseEvent<HTMLButtonElement>): void => {
     const el = event.currentTarget;
-    const isTruncated = el.scrollHeight > el.clientHeight + 1;
-    if (isTruncated) {
+    const styles = window.getComputedStyle(el);
+    const probe = document.createElement("span");
+    probe.textContent = todo.title;
+    probe.style.cssText = [
+      "position:absolute",
+      "visibility:hidden",
+      "pointer-events:none",
+      "white-space:nowrap",
+      `font:${styles.font}`,
+      `letter-spacing:${styles.letterSpacing}`,
+      `padding-left:${styles.paddingLeft}`,
+      `padding-right:${styles.paddingRight}`
+    ].join(";");
+    document.body.appendChild(probe);
+    const needsModal = probe.offsetWidth > el.clientWidth + 1;
+    probe.remove();
+
+    if (needsModal) {
       setEditingId(null);
       setEditingTitle("");
       setContextMenu(null);
